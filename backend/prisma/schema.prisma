@@ -1,0 +1,505 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── RBAC ─────────────────────────────────────────────────────────────────────
+
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  description String?
+  permissions RolePermission[]
+  users       User[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+
+  @@map("roles")
+}
+
+model Permission {
+  id       String           @id @default(cuid())
+  action   String
+  resource String
+  roles    RolePermission[]
+  createdAt DateTime        @default(now())
+
+  @@unique([action, resource])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  phone        String?
+  avatarUrl    String?
+  active       Boolean    @default(true)
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id])
+  schedules    Schedule[]
+  auditLogs    AuditLog[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  @@map("users")
+}
+
+// ── Clientes ──────────────────────────────────────────────────────────────────
+
+model Customer {
+  id                 String              @id @default(cuid())
+  name               String
+  email              String?
+  phone              String?
+  phone2             String?
+  cpf                String?             @unique
+  birthDate          DateTime?
+  address            Json?
+  notes              String?
+  measurements       BodyMeasurement[]
+  quotes             Quote[]
+  workOrders         WorkOrder[]
+  schedules          Schedule[]
+  accountsReceivable AccountReceivable[]
+  attachments        Attachment[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  deletedAt          DateTime?
+
+  @@map("customers")
+}
+
+model BodyMeasurement {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id])
+  bust         Float?
+  waist        Float?
+  hip          Float?
+  shoulder     Float?
+  backLength   Float?
+  frontLength  Float?
+  sleeveLength Float?
+  inseam       Float?
+  thigh        Float?
+  neckCirc     Float?
+  wrist        Float?
+  notes        String?
+  version      Int      @default(1)
+  takenAt      DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("body_measurements")
+}
+
+// ── Catálogo ──────────────────────────────────────────────────────────────────
+
+model Service {
+  id             String          @id @default(cuid())
+  name           String
+  description    String?
+  basePrice      Decimal         @db.Decimal(10, 2)
+  unit           String          @default("un")
+  active         Boolean         @default(true)
+  quoteItems     QuoteItem[]
+  workOrderItems WorkOrderItem[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+
+  @@map("services")
+}
+
+model Product {
+  id             String          @id @default(cuid())
+  name           String
+  sku            String?         @unique
+  description    String?
+  unit           String          @default("un")
+  costPrice      Decimal?        @db.Decimal(10, 2)
+  salePrice      Decimal?        @db.Decimal(10, 2)
+  active         Boolean         @default(true)
+  inventory      Inventory?
+  quoteItems     QuoteItem[]
+  workOrderItems WorkOrderItem[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+
+  @@map("products")
+}
+
+model Inventory {
+  id          String   @id @default(cuid())
+  productId   String   @unique
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Decimal  @db.Decimal(10, 3)
+  minQuantity Decimal  @default(0) @db.Decimal(10, 3)
+  location    String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("inventory")
+}
+
+model Garment {
+  id          String      @id @default(cuid())
+  name        String
+  category    String?
+  description String?
+  imageUrl    String?
+  active      Boolean     @default(true)
+  workOrders  WorkOrder[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  @@map("garments")
+}
+
+// ── Orçamentos ────────────────────────────────────────────────────────────────
+
+model Quote {
+  id          String      @id @default(cuid())
+  number      String      @unique
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  status      QuoteStatus @default(DRAFT)
+  validUntil  DateTime?
+  notes       String?
+  discount    Decimal     @default(0) @db.Decimal(10, 2)
+  total       Decimal     @default(0) @db.Decimal(10, 2)
+  items       QuoteItem[]
+  workOrder   WorkOrder?
+  attachments Attachment[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  @@map("quotes")
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model QuoteItem {
+  id          String   @id @default(cuid())
+  quoteId     String
+  quote       Quote    @relation(fields: [quoteId], references: [id])
+  type        ItemType
+  serviceId   String?
+  service     Service? @relation(fields: [serviceId], references: [id])
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+  description String
+  quantity    Decimal  @db.Decimal(10, 3)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  total       Decimal  @db.Decimal(10, 2)
+  order       Int      @default(0)
+
+  @@map("quote_items")
+}
+
+enum ItemType {
+  SERVICE
+  PRODUCT
+  CUSTOM
+}
+
+// ── Ordens de Serviço ─────────────────────────────────────────────────────────
+
+model WorkOrder {
+  id                 String              @id @default(cuid())
+  number             String              @unique
+  customerId         String
+  customer           Customer            @relation(fields: [customerId], references: [id])
+  quoteId            String?             @unique
+  quote              Quote?              @relation(fields: [quoteId], references: [id])
+  garmentId          String?
+  garment            Garment?            @relation(fields: [garmentId], references: [id])
+  status             WorkOrderStatus     @default(PENDING)
+  priority           Priority            @default(NORMAL)
+  dueDate            DateTime?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  deliveredAt        DateTime?
+  notes              String?
+  internalNotes      String?
+  discount           Decimal             @default(0) @db.Decimal(10, 2)
+  total              Decimal             @default(0) @db.Decimal(10, 2)
+  paidAmount         Decimal             @default(0) @db.Decimal(10, 2)
+  items              WorkOrderItem[]
+  schedules          Schedule[]
+  attachments        Attachment[]
+  accountsReceivable AccountReceivable[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  deletedAt          DateTime?
+
+  @@map("work_orders")
+}
+
+enum WorkOrderStatus {
+  PENDING
+  IN_PROGRESS
+  WAITING_MATERIAL
+  FITTING
+  DONE
+  DELIVERED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model WorkOrderItem {
+  id          String    @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
+  type        ItemType
+  serviceId   String?
+  service     Service?  @relation(fields: [serviceId], references: [id])
+  productId   String?
+  product     Product?  @relation(fields: [productId], references: [id])
+  description String
+  quantity    Decimal   @db.Decimal(10, 3)
+  unitPrice   Decimal   @db.Decimal(10, 2)
+  total       Decimal   @db.Decimal(10, 2)
+  done        Boolean   @default(false)
+  order       Int       @default(0)
+
+  @@map("work_order_items")
+}
+
+// ── Agenda ────────────────────────────────────────────────────────────────────
+
+model Schedule {
+  id          String       @id @default(cuid())
+  customerId  String?
+  customer    Customer?    @relation(fields: [customerId], references: [id])
+  workOrderId String?
+  workOrder   WorkOrder?   @relation(fields: [workOrderId], references: [id])
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id])
+  type        ScheduleType
+  title       String
+  description String?
+  startAt     DateTime
+  endAt       DateTime
+  allDay      Boolean      @default(false)
+  status      ApptStatus   @default(SCHEDULED)
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  @@map("schedules")
+}
+
+enum ScheduleType {
+  FITTING
+  DELIVERY
+  CONSULTATION
+  OTHER
+}
+
+enum ApptStatus {
+  SCHEDULED
+  CONFIRMED
+  DONE
+  CANCELLED
+  NO_SHOW
+}
+
+// ── Financeiro ────────────────────────────────────────────────────────────────
+
+model CashRegister {
+  id             String             @id @default(cuid())
+  openedAt       DateTime           @default(now())
+  closedAt       DateTime?
+  openingBalance Decimal            @default(0) @db.Decimal(10, 2)
+  closingBalance Decimal?           @db.Decimal(10, 2)
+  status         CashRegisterStatus @default(OPEN)
+  notes          String?
+  transactions   CashTransaction[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@map("cash_registers")
+}
+
+enum CashRegisterStatus {
+  OPEN
+  CLOSED
+}
+
+model CashTransaction {
+  id             String          @id @default(cuid())
+  cashRegisterId String
+  cashRegister   CashRegister    @relation(fields: [cashRegisterId], references: [id])
+  type           TransactionType
+  category       String?
+  description    String
+  amount         Decimal         @db.Decimal(10, 2)
+  paymentMethod  PaymentMethod   @default(CASH)
+  referenceId    String?
+  referenceType  String?
+  createdAt      DateTime        @default(now())
+
+  @@map("cash_transactions")
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum PaymentMethod {
+  CASH
+  CREDIT_CARD
+  DEBIT_CARD
+  PIX
+  TRANSFER
+  CHECK
+  OTHER
+}
+
+model AccountReceivable {
+  id            String           @id @default(cuid())
+  customerId    String?
+  customer      Customer?        @relation(fields: [customerId], references: [id])
+  workOrderId   String?
+  workOrder     WorkOrder?       @relation(fields: [workOrderId], references: [id])
+  description   String
+  amount        Decimal          @db.Decimal(10, 2)
+  paidAmount    Decimal          @default(0) @db.Decimal(10, 2)
+  dueDate       DateTime
+  paidAt        DateTime?
+  status        ReceivableStatus @default(PENDING)
+  paymentMethod PaymentMethod?
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  deletedAt     DateTime?
+
+  @@map("accounts_receivable")
+}
+
+enum ReceivableStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model AccountPayable {
+  id            String        @id @default(cuid())
+  supplier      String?
+  description   String
+  category      String?
+  amount        Decimal       @db.Decimal(10, 2)
+  paidAmount    Decimal       @default(0) @db.Decimal(10, 2)
+  dueDate       DateTime
+  paidAt        DateTime?
+  status        PayableStatus @default(PENDING)
+  paymentMethod PaymentMethod?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+
+  @@map("accounts_payable")
+}
+
+enum PayableStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+// ── Anexos ────────────────────────────────────────────────────────────────────
+
+model Attachment {
+  id           String     @id @default(cuid())
+  fileName     String
+  originalName String
+  mimeType     String
+  size         Int
+  url          String
+  customerId   String?
+  customer     Customer?  @relation(fields: [customerId], references: [id])
+  quoteId      String?
+  quote        Quote?     @relation(fields: [quoteId], references: [id])
+  workOrderId  String?
+  workOrder    WorkOrder? @relation(fields: [workOrderId], references: [id])
+  createdAt    DateTime   @default(now())
+
+  @@map("attachments")
+}
+
+// ── Configurações do negócio ──────────────────────────────────────────────────
+
+model BusinessInfo {
+  id          String   @id @default(cuid())
+  name        String   @default("Ateliê de Costura")
+  logoBase64  String?  @db.Text
+  tagline     String?
+  address     String?
+  city        String?
+  phone       String?
+  email       String?
+  website     String?
+  taxId       String?
+  footerText  String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("business_info")
+}
+
+// ── Auditoria ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  resource   String
+  resourceId String
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@map("audit_logs")
+}

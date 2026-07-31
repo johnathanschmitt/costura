@@ -1,0 +1,181 @@
+#!/bin/bash
+set -euo pipefail
+
+# ── Flags ────────────────────────────────────────────────────────────────────
+MODE="dev"
+WITH_SEED=false
+WITH_TOOLS=false
+
+for arg in "$@"; do
+  case $arg in
+    --prod)  MODE="prod" ;;
+    --dev)   MODE="dev" ;;
+    --seed)  WITH_SEED=true ;;
+    --tools) WITH_TOOLS=true ;;
+    --help|-h)
+      echo "Uso: ./start.sh [--dev|--prod] [--seed] [--tools]"
+      echo ""
+      echo "  --dev    Infra no Docker + backend/frontend locais (padrão)"
+      echo "  --prod   Tudo no Docker (faz build das imagens)"
+      echo "  --seed   Roda o seed após as migrations"
+      echo "  --tools  Inclui PgAdmin"
+      exit 0 ;;
+  esac
+done
+
+# ── Cores ────────────────────────────────────────────────────────────────────
+B='\033[0;34m'; G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; N='\033[0m'; BOLD='\033[1m'
+log()  { echo -e "${B}▸${N} $1"; }
+ok()   { echo -e "${G}✔${N} $1"; }
+warn() { echo -e "${Y}⚠${N}  $1"; }
+err()  { echo -e "${R}✖${N}  $1"; exit 1; }
+sep()  { echo -e "${B}────────────────────────────────────────${N}"; }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# ── Pré-checagens ─────────────────────────────────────────────────────────────
+command -v docker >/dev/null 2>&1 || err "Docker não encontrado"
+docker info >/dev/null 2>&1      || err "Docker daemon não está rodando"
+
+[ -f .env ] && export $(grep -v '^#' .env | grep -v '^$' | xargs) 2>/dev/null || true
+
+sep
+echo -e "${BOLD}  Ateliê de Costura — $( [ "$MODE" = "prod" ] && echo "Produção" || echo "Desenvolvimento" )${N}"
+sep
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PRODUÇÃO
+# ═════════════════════════════════════════════════════════════════════════════
+if [ "$MODE" = "prod" ]; then
+  PROFILES=""
+  [ "$WITH_TOOLS" = true ] && PROFILES="--profile tools"
+
+  log "Fazendo build e subindo todos os containers..."
+  docker compose $PROFILES up --build -d
+
+  log "Aguardando backend ficar saudável..."
+  for i in $(seq 1 60); do
+    STATUS=$(docker inspect --format='{{.State.Health.Status}}' atelie_backend 2>/dev/null || echo "starting")
+    [ "$STATUS" = "healthy" ] && break
+    # sem healthcheck no backend — espera só o postgres
+    if docker exec atelie_postgres pg_isready -U "${POSTGRES_USER:-atelie}" -q 2>/dev/null; then
+      sleep 5 && break
+    fi
+    [ $i -eq 60 ] && warn "Timeout aguardando — verifique: docker compose logs backend"
+    sleep 2
+  done
+
+  sep
+  ok "Sistema em produção"
+  ok "App:     http://localhost"
+  ok "API:     http://localhost/api"
+  ok "Swagger: http://localhost/docs"
+  [ "$WITH_TOOLS" = true ] && ok "PgAdmin: http://localhost:5050"
+  sep
+  echo -e "  Logs: ${Y}docker compose logs -f${N}"
+  echo -e "  Para parar: ${Y}./stop.sh --prod${N}"
+  sep
+  exit 0
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# DESENVOLVIMENTO
+# ═════════════════════════════════════════════════════════════════════════════
+command -v node >/dev/null 2>&1 || err "Node.js não encontrado"
+command -v npm  >/dev/null 2>&1 || err "npm não encontrado"
+
+PROFILES=""
+[ "$WITH_TOOLS" = true ] && PROFILES="--profile tools"
+
+# 1. Checagem de portas
+check_port() {
+  local port=$1 name=$2
+  if ss -tlnp "sport = :$port" 2>/dev/null | grep -q ":$port" || \
+     lsof -i ":$port" -sTCP:LISTEN -t 2>/dev/null | grep -q .; then
+    # Verifica se é um container Docker nosso
+    local container
+    container=$(docker ps --format '{{.Names}}' 2>/dev/null | grep "^atelie_" | head -1 || true)
+    if [ -z "$container" ]; then
+      err "Porta $port ($name) já está em uso por outro processo.\nPare o serviço e tente novamente, ou mude a porta no .env e docker-compose.dev.yml"
+    fi
+  fi
+}
+
+log "Checando portas..."
+check_port 5432 "PostgreSQL"
+check_port 6380 "Redis"
+check_port 9000 "MinIO"
+
+# Remove containers anteriores que possam ter ficado presos (inclusive com porta antiga)
+docker compose -f docker-compose.dev.yml down --remove-orphans 2>/dev/null || true
+docker rm -f atelie_postgres atelie_redis atelie_minio atelie_pgadmin 2>/dev/null || true
+
+# 1. Infra
+log "Subindo infraestrutura (postgres, redis, minio)..."
+docker compose -f docker-compose.dev.yml $PROFILES up -d
+ok "Containers iniciados"
+
+# 2. Aguarda Postgres
+log "Aguardando PostgreSQL..."
+for i in $(seq 1 45); do
+  if docker exec atelie_postgres pg_isready -U "${POSTGRES_USER:-atelie}" -q 2>/dev/null; then
+    ok "PostgreSQL pronto"
+    break
+  fi
+  [ $i -eq 45 ] && err "PostgreSQL não respondeu em 45s — veja: docker compose -f docker-compose.dev.yml logs postgres"
+  sleep 1
+done
+
+# 3. Instala/atualiza dependências
+log "Instalando/atualizando dependências..."
+npm install
+ok "Dependências atualizadas"
+
+# 4. Gera cliente Prisma
+log "Gerando cliente Prisma..."
+(cd backend && npx prisma generate --silent 2>/dev/null || npx prisma generate)
+ok "Cliente Prisma gerado"
+
+# 5. Migrations
+log "Aplicando migrations..."
+if (cd backend && npx prisma migrate deploy 2>&1 | tee /tmp/atelie_migrate.log | grep -q "error\|Error"); then
+  warn "Problema nas migrations — veja /tmp/atelie_migrate.log"
+else
+  ok "Migrations aplicadas"
+fi
+
+# 6. Seed (opcional)
+if [ "$WITH_SEED" = true ]; then
+  log "Rodando seed..."
+  if (cd backend && npx prisma db seed 2>&1 | tee /tmp/atelie_seed.log | grep -q "error\|Error"); then
+    warn "Problema no seed — veja /tmp/atelie_seed.log"
+  else
+    ok "Seed concluído"
+  fi
+fi
+
+# 7. Inicia servidores dev
+log "Iniciando backend (NestJS) e frontend (Vite)..."
+npm run dev > .dev.log 2>&1 &
+DEV_PID=$!
+echo "$DEV_PID" > .dev.pid
+
+# Aguarda uns segundos para checar se não crashou
+sleep 4
+if ! kill -0 "$DEV_PID" 2>/dev/null; then
+  err "Servidores não iniciaram — veja .dev.log"
+fi
+ok "Servidores iniciados (PID $DEV_PID)"
+
+sep
+ok "Sistema em desenvolvimento"
+ok "Frontend: http://localhost:5173"
+ok "Backend:  http://localhost:3000/api"
+ok "Swagger:  http://localhost:3000/docs"
+ok "MinIO:    http://localhost:9001"
+[ "$WITH_TOOLS" = true ] && ok "PgAdmin:  http://localhost:5050"
+sep
+echo -e "  Logs: ${Y}tail -f .dev.log${N}"
+echo -e "  Para parar: ${Y}./stop.sh${N}"
+sep
