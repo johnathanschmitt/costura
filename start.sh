@@ -16,7 +16,7 @@ for arg in "$@"; do
       echo "Uso: ./start.sh [--dev|--prod] [--seed] [--tools]"
       echo ""
       echo "  --dev    Infra no Docker + backend/frontend locais (padrão)"
-      echo "  --prod   Tudo no Docker (faz build das imagens)"
+      echo "  --prod   Compila no host e sobe tudo no Docker"
       echo "  --seed   Roda o seed após as migrations"
       echo "  --tools  Inclui PgAdmin"
       exit 0 ;;
@@ -99,8 +99,30 @@ if [ "$MODE" = "prod" ]; then
   PROFILES=""
   [ "$WITH_TOOLS" = true ] && PROFILES="--profile tools"
 
-  log "Fazendo build e subindo todos os containers..."
-  docker compose $PROFILES up --build -d
+  # Os containers não compilam nada: eles montam os artefatos do host.
+  # dist/ e node_modules/ são gitignored, então um clone/pull limpo não os traz
+  # e o nginx serviria um diretório vazio (403).
+  command -v npm >/dev/null 2>&1 || err "npm não encontrado — o build de produção é feito no host.
+     Instale as dependências do sistema com:
+       ./install-deps.sh"
+
+  if [ ! -d node_modules ]; then
+    log "Instalando dependências (primeira vez, pode demorar)..."
+    npm ci || err "npm ci falhou — veja o erro acima."
+  fi
+
+  log "Compilando backend e frontend no host..."
+  npm run build || err "Build falhou — veja o erro acima."
+
+  # O container usa o node_modules do host, incluindo os engines do Prisma
+  log "Gerando Prisma Client..."
+  npm run prisma:generate --workspace=backend >/dev/null || err "prisma generate falhou."
+
+  [ -f frontend/dist/index.html ] || err "frontend/dist/index.html não foi gerado — build incompleto."
+  [ -f backend/dist/src/main.js ] || err "backend/dist/src/main.js não foi gerado — build incompleto."
+
+  log "Subindo os containers..."
+  docker compose $PROFILES up -d
 
   log "Aguardando backend ficar saudável..."
   for i in $(seq 1 60); do
