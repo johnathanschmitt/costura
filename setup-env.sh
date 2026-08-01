@@ -86,18 +86,23 @@ POSTGRES_DB=atelie
 POSTGRES_USER=atelie
 MINIO_ROOT_USER=atelie_minio
 
-# Em produção os serviços conversam pelos nomes dos containers, não por
-# localhost — cada um roda no seu próprio container.
+# Este .env é lido pelos processos do host (backend em dev, prisma CLI), então
+# os endereços aqui são localhost. Entre containers, quem manda são as variáveis
+# definidas no docker-compose.yml, que usam os nomes de serviço da rede Docker.
 cat > .env <<EOF
 # ── Postgres ──────────────────────────────────────────────────────────────────
 POSTGRES_DB=$POSTGRES_DB
 POSTGRES_USER=$POSTGRES_USER
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-DATABASE_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB
+# localhost, não "postgres": quem lê este arquivo são os processos do host
+# (backend em dev, prisma CLI). Os containers não usam esta linha — o
+# docker-compose.yml sobrescreve DATABASE_URL com o hostname da rede Docker.
+DATABASE_URL=postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@localhost:5432/$POSTGRES_DB
 
 # ── Redis ─────────────────────────────────────────────────────────────────────
 REDIS_PASSWORD=$REDIS_PASSWORD
-REDIS_URL=redis://:$REDIS_PASSWORD@redis:6379
+# idem: localhost para o host, o compose sobrescreve para o container
+REDIS_URL=redis://:$REDIS_PASSWORD@localhost:${REDIS_PORT:-6379}
 
 # ── MinIO (armazenamento de arquivos) ─────────────────────────────────────────
 MINIO_ROOT_USER=$MINIO_ROOT_USER
