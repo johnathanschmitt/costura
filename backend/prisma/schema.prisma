@@ -1,9 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-  // "native" = host (dev); "debian-openssl-3.0.x" = container node:20-slim (produção).
-  // Ambos os engines ficam em node_modules/.prisma para o mesmo node_modules
-  // servir host e contêiner sem recompilar.
-  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
