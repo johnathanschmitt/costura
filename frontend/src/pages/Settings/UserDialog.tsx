@@ -90,7 +90,16 @@ export default function UserDialog({ open, onClose, existing }: Props) {
     onError: (e: any) => setError(e.response?.data?.message ?? 'Erro'),
   });
 
-  const valid = form.name && form.email && form.roleId && (!isEdit || true) && (isEdit || form.password.length >= 6);
+  // Botão cinza sem explicação é indistinguível de botão quebrado. Em vez de um
+  // booleano, monta a lista do que falta e mostra ao lado do Salvar.
+  const faltando: string[] = [];
+  if (!form.name.trim()) faltando.push('nome');
+  if (!form.email.trim()) faltando.push('e-mail');
+  if (!form.roleId) faltando.push('perfil');
+  if (!isEdit && form.password.length < 6) faltando.push('senha com 6 caracteres ou mais');
+
+  const valid = faltando.length === 0;
+  const semPerfis = (roles as any[]).length === 0;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -185,7 +194,14 @@ export default function UserDialog({ open, onClose, existing }: Props) {
           </Grid>
         </Grid>
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        {!valid && (
+          <Typography variant="caption" color="text.secondary" sx={{ mr: 'auto' }}>
+            {semPerfis
+              ? 'Não foi possível carregar os perfis — recarregue a página.'
+              : `Falta preencher: ${faltando.join(', ')}.`}
+          </Typography>
+        )}
         <Button onClick={onClose}>Cancelar</Button>
         <Button
           variant="contained"
