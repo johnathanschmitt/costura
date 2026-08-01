@@ -118,10 +118,15 @@ if [ "$MODE" = "prod" ]; then
   if [ "$NEED_INSTALL" = true ]; then
     # Sem lockfile o `npm ci` só cospe o texto de ajuda do comando, que não
     # explica nada. O arquivo é versionado, então normalmente é só restaurar.
+    # Sem lockfile o `npm ci` só cospe o texto de ajuda do comando. Como o
+    # arquivo é versionado, dá para restaurar sozinho em vez de abortar.
     if [ ! -f package-lock.json ]; then
-      err "package-lock.json não existe — o npm ci não tem como rodar.
-     Ele é versionado; restaure com:
-       git checkout -- package-lock.json"
+      if git cat-file -e HEAD:package-lock.json 2>/dev/null; then
+        warn "package-lock.json estava faltando — restaurando do git."
+        git checkout -- package-lock.json || err "Falha ao restaurar package-lock.json."
+      else
+        err "package-lock.json não existe e não está no git — o npm ci não tem como rodar."
+      fi
     fi
 
     # Restos de instalação interrompida (.pacote-XXXX) fazem o npm morrer com
