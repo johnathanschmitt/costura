@@ -12,7 +12,13 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
   res => res,
   err => {
-    if (err.response?.status === 401) useAuthStore.getState().logout();
+    // O 401 do próprio login é resposta esperada a uma senha errada — não há
+    // sessão para encerrar. Tratá-lo como expiração recarregava a página e
+    // apagava a mensagem de erro antes de ela aparecer.
+    const isLoginAttempt = err.config?.url?.includes('/auth/login');
+    if (err.response?.status === 401 && !isLoginAttempt) {
+      useAuthStore.getState().logout();
+    }
     return Promise.reject(err);
   },
 );

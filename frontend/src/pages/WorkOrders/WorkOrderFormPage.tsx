@@ -4,7 +4,7 @@ import {
   Breadcrumbs, Link, Alert, Chip, Select, MenuItem, FormControl, InputLabel,
   Stepper, Step, StepLabel,
 } from '@mui/material';
-import { Save, ArrowBack, PlayArrow, Done, LocalShipping, RequestQuote, Pause, ContentCut } from '@mui/icons-material';
+import { Save, ArrowBack, PlayArrow, Done, LocalShipping, RequestQuote, Receipt } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatePicker } from '@mui/x-date-pickers';
@@ -17,6 +17,11 @@ import ItemsEditor, { LineItem } from '../../components/common/ItemsEditor';
 import AttachmentsCard from '../../components/common/AttachmentsCard';
 import { useToast } from '../../store/toast.store';
 import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
+import DeliverDialog from './DeliverDialog';
+import PieceMeasurements from './PieceMeasurements';
+import ProgressCard from './ProgressCard';
+import MaterialsCard from './MaterialsCard';
+import { apiError } from './constants';
 
 const STATUS_STEPS = ['PENDING', 'IN_PROGRESS', 'FITTING', 'DONE', 'DELIVERED'];
 const STATUS_LABELS: Record<string, string> = {
@@ -26,16 +31,20 @@ const STATUS_LABELS: Record<string, string> = {
 
 interface WOForm {
   customer: any | null;
+  garmentId: string;
+  assignedToId: string;
   priority: string;
   dueDate: Dayjs | null;
   notes: string;
   internalNotes: string;
   discount: number;
   items: LineItem[];
+  measurements: Record<string, any> | null;
 }
 
 const EMPTY: WOForm = {
-  customer: null, priority: 'NORMAL', dueDate: null, notes: '', internalNotes: '', discount: 0, items: [],
+  customer: null, garmentId: '', assignedToId: '', priority: 'NORMAL', dueDate: null,
+  notes: '', internalNotes: '', discount: 0, items: [], measurements: null,
 };
 
 export default function WorkOrderFormPage() {
@@ -46,6 +55,7 @@ export default function WorkOrderFormPage() {
 
   const [form, setForm] = useState<WOForm>(EMPTY);
   const [error, setError] = useState('');
+  const [deliverOpen, setDeliverOpen] = useState(false);
 
   const { data: existing } = useQuery({
     queryKey: ['work-order', id],
@@ -57,11 +67,14 @@ export default function WorkOrderFormPage() {
     if (existing) {
       setForm({
         customer: existing.customer ?? null,
+        garmentId: existing.garmentId ?? '',
+        assignedToId: existing.assignedToId ?? '',
         priority: existing.priority ?? 'NORMAL',
         dueDate: existing.dueDate ? dayjs(existing.dueDate) : null,
         notes: existing.notes ?? '',
         internalNotes: existing.internalNotes ?? '',
         discount: parseFloat(existing.discount ?? 0),
+        measurements: existing.measurements ?? null,
         items: existing.items?.map((i: any) => ({
           id: i.id,
           type: i.type,
@@ -77,13 +90,18 @@ export default function WorkOrderFormPage() {
     }
   }, [existing]);
 
+  // O ValidationPipe do backend rejeita chaves desconhecidas e nulos onde
+  // espera string, então campos vazios são omitidos em vez de virarem null.
   const buildPayload = useCallback((f: WOForm) => ({
     customerId: f.customer?.id,
+    garmentId: f.garmentId || undefined,
+    assignedToId: f.assignedToId || undefined,
     priority: f.priority,
-    dueDate: f.dueDate?.toISOString() ?? null,
-    notes: f.notes || null,
-    internalNotes: f.internalNotes || null,
+    dueDate: f.dueDate?.toISOString() ?? undefined,
+    notes: f.notes || undefined,
+    internalNotes: f.internalNotes || undefined,
     discount: f.discount,
+    measurements: f.measurements ?? undefined,
     items: f.items.map(({ id: _id, total: _total, ...rest }) => rest),
   }), []);
 
@@ -103,6 +121,26 @@ export default function WorkOrderFormPage() {
   const statusMutation = useMutation({
     mutationFn: (status: string) => api.patch(`/work-orders/${id}/status`, { status }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['work-order', id] }),
+    onError: (e: any) => setError(apiError(e, 'Não foi possível mudar o status')),
+  });
+
+  const { data: garments = [] } = useQuery({
+    queryKey: ['garments'],
+    // /garments é paginado — o array vem dentro de `data`.
+    queryFn: () => api.get('/garments', { params: { active: 'true', limit: 100 } })
+      .then(r => r.data?.data ?? []),
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => api.get('/settings/users').then(r => r.data),
+  });
+
+  // Última medição da cliente, para oferecer como base das medidas da peça.
+  const { data: customerDetail } = useQuery({
+    queryKey: ['customer', form.customer?.id],
+    queryFn: () => api.get(`/customers/${form.customer.id}`).then(r => r.data),
+    enabled: Boolean(form.customer?.id),
   });
 
   const handleSave = async () => {
@@ -176,8 +214,14 @@ export default function WorkOrderFormPage() {
           )}
           {existing?.status === 'DONE' && (
             <Button size="small" variant="outlined" color="primary" startIcon={<LocalShipping />}
-              onClick={() => statusMutation.mutate('DELIVERED')}>
-              Entregar
+              onClick={() => setDeliverOpen(true)}>
+              Registrar Entrega
+            </Button>
+          )}
+          {existing?.status === 'DELIVERED' && (
+            <Button size="small" variant="outlined" startIcon={<Receipt />}
+              onClick={() => navigate(`/work-orders/${id}/receipt`)}>
+              Recibo
             </Button>
           )}
           {isActive && (
@@ -239,6 +283,38 @@ export default function WorkOrderFormPage() {
                     disabled={!isActive}
                   />
                 </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Tipo de peça</InputLabel>
+                    <Select
+                      value={form.garmentId}
+                      label="Tipo de peça"
+                      onChange={e => setForm(f => ({ ...f, garmentId: e.target.value }))}
+                      disabled={!isActive}
+                    >
+                      <MenuItem value="">Não especificado</MenuItem>
+                      {(garments as any[]).map(g => (
+                        <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Costureira responsável</InputLabel>
+                    <Select
+                      value={form.assignedToId}
+                      label="Costureira responsável"
+                      onChange={e => setForm(f => ({ ...f, assignedToId: e.target.value }))}
+                      disabled={!isActive}
+                    >
+                      <MenuItem value="">Sem responsável</MenuItem>
+                      {(users as any[]).map(u => (
+                        <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
               </Grid>
             </CardContent>
           </Card>
@@ -250,14 +326,24 @@ export default function WorkOrderFormPage() {
             <CardContent>
               <Typography variant="body2" sx={{ opacity: 0.8 }}>Total da OS</Typography>
               <Typography variant="h4" fontWeight={700}>{fmt(total)}</Typography>
-              {existing?.paidAmount > 0 && (
+              {/* O recebido vem das contas a receber vinculadas — é onde os
+                  pagamentos realmente acontecem. */}
+              {existing?.financials && (
                 <>
                   <Typography variant="body2" sx={{ opacity: 0.8, mt: 1.5 }}>Recebido</Typography>
-                  <Typography variant="h6">{fmt(existing.paidAmount)}</Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.5 }}>Saldo</Typography>
-                  <Typography variant="h6" color={total - existing.paidAmount > 0 ? 'error.light' : 'success.light'}>
-                    {fmt(total - existing.paidAmount)}
+                  <Typography variant="h6">{fmt(Number(existing.financials.paid))}</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.5 }}>Saldo devedor</Typography>
+                  <Typography
+                    variant="h6"
+                    color={Number(existing.financials.balance) > 0.005 ? 'error.light' : 'success.light'}
+                  >
+                    {fmt(Number(existing.financials.balance))}
                   </Typography>
+                  {!existing.financials.hasReceivable && total > 0 && (
+                    <Typography variant="caption" sx={{ opacity: 0.85, display: 'block', mt: 1 }}>
+                      Ainda sem cobrança lançada no financeiro.
+                    </Typography>
+                  )}
                 </>
               )}
             </CardContent>
@@ -311,13 +397,54 @@ export default function WorkOrderFormPage() {
           </Card>
         </Grid>
 
-        {/* Anexos */}
+        {/* Andamento e materiais */}
+        {isEdit && id && (
+          <>
+            <Grid item xs={12} md={7}>
+              <ProgressCard
+                workOrderId={id}
+                currentPct={existing?.progressPct ?? 0}
+                readOnly={!isActive}
+              />
+            </Grid>
+            <Grid item xs={12} md={5}>
+              <MaterialsCard
+                workOrderId={id}
+                workOrderNumber={existing?.number ?? ''}
+                movements={existing?.inventoryMovements ?? []}
+                readOnly={!isActive}
+              />
+            </Grid>
+          </>
+        )}
+
+        {/* Medidas da peça */}
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <PieceMeasurements
+                value={form.measurements}
+                onChange={m => setForm(f => ({ ...f, measurements: m }))}
+                customerMeasurement={customerDetail?.measurements?.[0] ?? null}
+                disabled={!isActive}
+              />
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Anexos — fotos de referência, tecido recebido e documentos */}
         {isEdit && id && (
           <Grid item xs={12}>
             <AttachmentsCard entityType="workOrder" entityId={id} />
           </Grid>
         )}
       </Grid>
+
+      <DeliverDialog
+        workOrder={deliverOpen ? existing : null}
+        onClose={() => setDeliverOpen(false)}
+        onDelivered={() => qc.invalidateQueries({ queryKey: ['work-order', id] })}
+      />
     </Box>
   );
 }

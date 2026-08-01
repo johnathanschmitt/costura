@@ -1,46 +1,63 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Chip, Select, MenuItem, FormControl, InputLabel, Typography,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Grid, Skeleton,
+  Alert, TablePagination, IconButton, Tooltip,
 } from '@mui/material';
-import { Add, Payment } from '@mui/icons-material';
+import MoneyField from '../../components/common/fields/MoneyField';
+import { Add, Payment, Block } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { DatePicker } from '@mui/x-date-pickers';
 import dayjs, { Dayjs } from 'dayjs';
 import api from '../../services/api';
 import PaymentDialog from '../../components/common/PaymentDialog';
-
-const STATUS_MAP: Record<string, { label: string; color: any }> = {
-  PENDING: { label: 'Pendente', color: 'warning' },
-  PARTIAL: { label: 'Parcial', color: 'info' },
-  PAID: { label: 'Pago', color: 'success' },
-  OVERDUE: { label: 'Vencido', color: 'error' },
-  CANCELLED: { label: 'Cancelado', color: 'default' },
-};
+import ConfirmDialog from '../../components/common/ConfirmDialog';
+import { useToast } from '../../store/toast.store';
+import { apiError, fmt, STATUS_MAP, toNumber } from './format';
 
 const CATEGORIES = ['Aluguel', 'Material', 'Mão de obra', 'Energia', 'Água', 'Internet', 'Impostos', 'Marketing', 'Outros'];
 
 function NewPayableDialog({ open, onClose, onSuccess }: any) {
   const [form, setForm] = useState({
-    description: '', supplier: '', category: '', amount: '',
-    dueDate: null as Dayjs | null, notes: '',
+    description: '', supplier: '', category: '', amount: null as number | null,
+    dueDate: null as Dayjs | null, notes: '', recurrence: 'NONE',
   });
+  const [error, setError] = useState('');
   const qc = useQueryClient();
+  const toast = useToast();
+
+  useEffect(() => {
+    if (open) {
+      setForm({
+        description: '', supplier: '', category: '', amount: null,
+        dueDate: dayjs(), notes: '', recurrence: 'NONE',
+      });
+      setError('');
+    }
+  }, [open]);
 
   const mutation = useMutation({
     mutationFn: (data: any) => api.post('/financial/payables', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['payables'] });
+      qc.invalidateQueries({ queryKey: ['financial-summary'] });
+      toast('Conta a pagar criada');
+      // Materializa as próximas ocorrências assim que a conta-mãe existe.
+      if (form.recurrence !== 'NONE') {
+        api.post('/financial/payables/generate-recurrences')
+          .then(() => qc.invalidateQueries({ queryKey: ['payables'] }));
+      }
       onSuccess();
-      setForm({ description: '', supplier: '', category: '', amount: '', dueDate: null, notes: '' });
     },
+    onError: (e: any) => setError(apiError(e, 'Erro ao criar a conta')),
   });
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Nova Conta a Pagar</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        {error && <Alert severity="error">{error}</Alert>}
         <TextField label="Descrição" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} fullWidth required autoFocus />
         <Grid container spacing={2}>
           <Grid item xs={6}>
@@ -55,13 +72,11 @@ function NewPayableDialog({ open, onClose, onSuccess }: any) {
             </FormControl>
           </Grid>
           <Grid item xs={6}>
-            <TextField
-              label="Valor (R$)"
-              type="number"
+            <MoneyField
+              label="Valor"
               value={form.amount}
-              onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+              onChange={v => setForm(f => ({ ...f, amount: v }))}
               fullWidth required
-              inputProps={{ min: 0.01, step: 0.01 }}
             />
           </Grid>
           <Grid item xs={6}>
@@ -72,13 +87,46 @@ function NewPayableDialog({ open, onClose, onSuccess }: any) {
               slotProps={{ textField: { fullWidth: true, size: 'small' } }}
             />
           </Grid>
+          <Grid item xs={6}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Recorrência</InputLabel>
+              <Select
+                value={form.recurrence}
+                label="Recorrência"
+                onChange={e => setForm(f => ({ ...f, recurrence: e.target.value }))}
+              >
+                <MenuItem value="NONE">Única</MenuItem>
+                <MenuItem value="MONTHLY">Mensal</MenuItem>
+                <MenuItem value="YEARLY">Anual</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
         </Grid>
+
+        {form.recurrence !== 'NONE' && (
+          <Alert severity="info">
+            As próximas ocorrências ({form.recurrence === 'MONTHLY' ? 'mensais' : 'anuais'}) são
+            criadas automaticamente para os próximos meses, a partir deste vencimento.
+          </Alert>
+        )}
+
         <TextField label="Observações" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} fullWidth multiline rows={2} />
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancelar</Button>
-        <Button variant="contained" onClick={() => mutation.mutate({ ...form, amount: parseFloat(form.amount), dueDate: form.dueDate?.toISOString(), supplier: form.supplier || null, category: form.category || null, notes: form.notes || null })}
-          loading={mutation.isPending} disabled={!form.description || !form.amount}>
+        <Button onClick={onClose} disabled={mutation.isPending}>Cancelar</Button>
+        <Button
+          variant="contained"
+          onClick={() => mutation.mutate({
+            description: form.description,
+            amount: form.amount,
+            dueDate: form.dueDate?.toISOString(),
+            supplier: form.supplier || undefined,
+            category: form.category || undefined,
+            recurrence: form.recurrence,
+            notes: form.notes || undefined,
+          })}
+          disabled={!form.description || !form.amount || !form.dueDate || mutation.isPending}
+        >
           Salvar
         </Button>
       </DialogActions>
@@ -88,36 +136,77 @@ function NewPayableDialog({ open, onClose, onSuccess }: any) {
 
 export default function PayablesSection() {
   const qc = useQueryClient();
+  const toast = useToast();
   const [status, setStatus] = useState('');
+  const [category, setCategory] = useState('');
+  const [page, setPage] = useState(0);
+  const [limit, setLimit] = useState(20);
   const [payTarget, setPayTarget] = useState<any>(null);
+  const [cancelTarget, setCancelTarget] = useState<any>(null);
   const [newDialog, setNewDialog] = useState(false);
+  const [payError, setPayError] = useState('');
 
-  const { data = [], isLoading } = useQuery({
-    queryKey: ['payables', status],
-    queryFn: () => api.get('/financial/payables', { params: { status: status || undefined } }).then(r => r.data),
+  const { data, isLoading } = useQuery({
+    queryKey: ['payables', status, category, page, limit],
+    queryFn: () => api.get('/financial/payables', {
+      params: { status: status || undefined, category: category || undefined, page: page + 1, limit },
+    }).then(r => r.data),
   });
+
+  const rows = data?.data ?? [];
+  const summary = data?.summary;
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['payables'] });
+    qc.invalidateQueries({ queryKey: ['financial-summary'] });
+    qc.invalidateQueries({ queryKey: ['cash-register-current'] });
+    qc.invalidateQueries({ queryKey: ['cash-transactions'] });
+  };
 
   const payMutation = useMutation({
-    mutationFn: ({ id, amount, method }: any) => api.patch(`/financial/payables/${id}/pay`, { amount, method }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['payables'] }); setPayTarget(null); },
+    mutationFn: ({ id, amount, method, amountTendered }: any) => api.patch(`/financial/payables/${id}/pay`, { amount, method, amountTendered }),
+    onSuccess: () => { refresh(); setPayTarget(null); toast('Pagamento registrado'); },
+    onError: (e: any) => setPayError(apiError(e, 'Erro ao registrar o pagamento')),
   });
 
-  const fmt = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0);
-
-  const totalPending = (data as any[]).filter(r => r.status !== 'PAID' && r.status !== 'CANCELLED')
-    .reduce((s: number, r: any) => s + Number(r.amount) - Number(r.paidAmount), 0);
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/financial/payables/${id}`),
+    onSuccess: () => { refresh(); setCancelTarget(null); toast('Conta cancelada', 'info'); },
+    onError: (e: any) => { setCancelTarget(null); toast(apiError(e, 'Erro ao cancelar'), 'error'); },
+  });
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Box>
-          <Typography variant="body2" color="text.secondary">Total a pagar</Typography>
-          <Typography variant="h5" fontWeight={700} color="error.main">{fmt(totalPending)}</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 4 }}>
+          <Box>
+            <Typography variant="body2" color="text.secondary">Total a pagar</Typography>
+            <Typography variant="h5" fontWeight={700} color="error.main">
+              {isLoading ? <Skeleton width={140} /> : fmt(summary?.totalOpen)}
+            </Typography>
+          </Box>
+          {toNumber(summary?.overdueAmount) > 0 && (
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                Vencido ({summary.overdueCount})
+              </Typography>
+              <Typography variant="h5" fontWeight={700} color="error.main">
+                {fmt(summary.overdueAmount)}
+              </Typography>
+            </Box>
+          )}
         </Box>
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
           <FormControl size="small" sx={{ minWidth: 140 }}>
+            <InputLabel>Categoria</InputLabel>
+            <Select value={category} label="Categoria" onChange={e => { setCategory(e.target.value); setPage(0); }}>
+              <MenuItem value="">Todas</MenuItem>
+              {CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 140 }}>
             <InputLabel>Status</InputLabel>
-            <Select value={status} label="Status" onChange={e => setStatus(e.target.value)}>
+            <Select value={status} label="Status" onChange={e => { setStatus(e.target.value); setPage(0); }}>
               <MenuItem value="">Todos</MenuItem>
               {Object.entries(STATUS_MAP).map(([v, { label }]) => <MenuItem key={v} value={v}>{label}</MenuItem>)}
             </Select>
@@ -138,16 +227,17 @@ export default function PayablesSection() {
               <TableCell align="right">Saldo</TableCell>
               <TableCell>Vencimento</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell align="right">Ação</TableCell>
+              <TableCell align="right">Ações</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {isLoading ? Array.from({ length: 4 }).map((_, i) => (
               <TableRow key={i}>{[1,2,3,4,5,6,7,8,9].map(j => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
-            )) : (data as any[]).map((r: any) => {
+            )) : rows.map((r: any) => {
               const { label, color } = STATUS_MAP[r.status] ?? { label: r.status, color: 'default' };
-              const saldo = Number(r.amount) - Number(r.paidAmount);
-              const overdue = r.status === 'PENDING' && dayjs(r.dueDate).isBefore(dayjs(), 'day');
+              const saldo = toNumber(r.amount) - toNumber(r.paidAmount);
+              const overdue = r.status === 'OVERDUE';
+              const settled = r.status === 'PAID' || r.status === 'CANCELLED';
               return (
                 <TableRow key={r.id} hover sx={{ bgcolor: overdue ? 'error.50' : undefined }}>
                   <TableCell>{r.description}</TableCell>
@@ -158,22 +248,34 @@ export default function PayablesSection() {
                   <TableCell align="right" sx={{ color: saldo > 0 ? 'error.main' : 'text.primary', fontWeight: 600 }}>
                     {fmt(saldo)}
                   </TableCell>
-                  <TableCell sx={{ color: overdue ? 'error.main' : undefined }}>
+                  <TableCell sx={{ color: overdue ? 'error.main' : undefined, fontWeight: overdue ? 600 : undefined }}>
                     {dayjs(r.dueDate).format('DD/MM/YYYY')}
+                    {overdue && (
+                      <Typography variant="caption" display="block" color="error.main">
+                        há {dayjs().diff(dayjs(r.dueDate), 'day')} dia(s)
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell><Chip label={label} size="small" color={color} /></TableCell>
                   <TableCell align="right">
-                    {r.status !== 'PAID' && r.status !== 'CANCELLED' && (
-                      <Button size="small" variant="outlined" color="error" startIcon={<Payment />}
-                        onClick={() => setPayTarget(r)}>
-                        Pagar
-                      </Button>
+                    {!settled && (
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                        <Button size="small" variant="outlined" color="error" startIcon={<Payment />}
+                          onClick={() => { setPayError(''); setPayTarget(r); }}>
+                          Pagar
+                        </Button>
+                        <Tooltip title="Cancelar conta">
+                          <IconButton size="small" onClick={() => setCancelTarget(r)}>
+                            <Block fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
                     )}
                   </TableCell>
                 </TableRow>
               );
             })}
-            {!isLoading && data.length === 0 && (
+            {!isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={9} align="center">
                   <Typography variant="body2" color="text.secondary" py={2}>Nenhuma conta encontrada</Typography>
@@ -182,15 +284,40 @@ export default function PayablesSection() {
             )}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={data?.total ?? 0}
+          page={page}
+          onPageChange={(_, p) => setPage(p)}
+          rowsPerPage={limit}
+          onRowsPerPageChange={e => { setLimit(parseInt(e.target.value, 10)); setPage(0); }}
+          rowsPerPageOptions={[10, 20, 50, 100]}
+          labelRowsPerPage="Por página"
+          labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+        />
       </TableContainer>
 
       <PaymentDialog
         open={Boolean(payTarget)}
         onClose={() => setPayTarget(null)}
-        onConfirm={(amount, method) => payMutation.mutate({ id: payTarget?.id, amount, method })}
+        onConfirm={(amount, method, amountTendered) => payMutation.mutate({ id: payTarget?.id, amount, method, amountTendered })}
         title={`Pagar: ${payTarget?.description ?? ''}`}
-        maxAmount={payTarget ? Number(payTarget.amount) - Number(payTarget.paidAmount) : undefined}
+        maxAmount={payTarget ? toNumber(payTarget.amount) - toNumber(payTarget.paidAmount) : undefined}
         loading={payMutation.isPending}
+        error={payError}
+        confirmColor="error"
+        amountLabel="Valor pago (R$)"
+      />
+
+      <ConfirmDialog
+        open={Boolean(cancelTarget)}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={() => cancelMutation.mutate(cancelTarget.id)}
+        title="Cancelar conta"
+        message={`Cancelar "${cancelTarget?.description ?? ''}"? A conta deixa de ser paga, mas continua no histórico.`}
+        confirmLabel="Cancelar conta"
+        confirmColor="error"
+        loading={cancelMutation.isPending}
       />
 
       <NewPayableDialog open={newDialog} onClose={() => setNewDialog(false)} onSuccess={() => setNewDialog(false)} />

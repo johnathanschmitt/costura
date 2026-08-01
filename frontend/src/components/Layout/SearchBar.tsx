@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Box, InputBase, Paper, List, ListItem, ListItemText,
-  ListItemIcon, Typography, Divider, CircularProgress, alpha,
+  ListItemIcon, Typography, Divider, CircularProgress, alpha, useMediaQuery, useTheme,
 } from '@mui/material';
 import { Search, People, RequestQuote, Assignment, MiscellaneousServices } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +15,9 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function SearchBar() {
+  const theme = useTheme();
+  // Em tela estreita o texto longo do campo não cabe junto dos botões.
+  const compact = useMediaQuery(theme.breakpoints.down('sm'));
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const debouncedQ = useDebounce(q, 300);
@@ -44,17 +47,19 @@ export default function SearchBar() {
   const go = (path: string) => { navigate(path); setQ(''); setOpen(false); };
 
   return (
-    <Box ref={ref} sx={{ flexGrow: 1, mx: 2, position: 'relative' }}>
+    <Box ref={ref} sx={{ flexGrow: 1, mx: { xs: 0.5, sm: 2 }, minWidth: 0, position: 'relative' }}>
       <Box sx={{
         display: 'flex', alignItems: 'center',
-        bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, px: 1.5, py: 0.5,
+        bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2,
+        px: { xs: 1, sm: 1.5 }, py: 0.5,
       }}>
         <Search sx={{ mr: 1, opacity: 0.8, fontSize: 20 }} />
         <InputBase
-          placeholder="Buscar clientes, OS, orçamentos…"
+          placeholder={compact ? 'Buscar…' : 'Buscar clientes, OS, orçamentos…'}
           value={q}
           onChange={e => { setQ(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
+          onKeyDown={e => { if (e.key === 'Escape') { setOpen(false); (e.target as HTMLInputElement).blur(); } }}
           sx={{ color: 'inherit', fontSize: 14, width: '100%' }}
         />
         {isFetching && <CircularProgress size={16} sx={{ color: 'rgba(255,255,255,0.7)' }} />}
@@ -137,7 +142,7 @@ export default function SearchBar() {
               </Box>
               <List dense disablePadding>
                 {data.services.map((s: any) => (
-                  <ListItem key={s.id} button onClick={() => go('/catalog/services')} sx={{ px: 2 }}>
+                  <ListItem key={s.id} button onClick={() => go(`/catalog/services/${s.id}/edit`)} sx={{ px: 2 }}>
                     <ListItemIcon sx={{ minWidth: 32 }}><MiscellaneousServices fontSize="small" color="action" /></ListItemIcon>
                     <ListItemText primary={s.name} primaryTypographyProps={{ variant: 'body2' }} />
                   </ListItem>

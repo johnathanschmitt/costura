@@ -3,6 +3,7 @@ import {
   Box, Grid, TextField, Button, Typography, Divider,
   Alert, CircularProgress, Avatar, Paper, InputAdornment, IconButton,
 } from '@mui/material';
+import { PhoneField } from '../../components/common/fields/MaskedFields';
 import { Visibility, VisibilityOff, Save } from '@mui/icons-material';
 import { useMutation } from '@tanstack/react-query';
 import api from '../../services/api';
@@ -75,13 +76,7 @@ export default function ProfileTab() {
           <TextField label="Nome completo" value={name} onChange={e => setName(e.target.value)} fullWidth required />
         </Grid>
         <Grid item xs={12}>
-          <TextField
-            label="Telefone"
-            value={phone}
-            onChange={e => setPhone(e.target.value)}
-            fullWidth
-            placeholder="(11) 99999-9999"
-          />
+          <PhoneField label="Telefone" value={phone} onChange={setPhone} fullWidth />
         </Grid>
         <Grid item xs={12}>
           <Button

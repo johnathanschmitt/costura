@@ -3,6 +3,7 @@ import {
   Box, Typography, Button, Grid, TextField, Card, CardContent,
   Alert, Breadcrumbs, Link,
 } from '@mui/material';
+import { PhoneField, DocumentField, CepField, EmailField } from '../../components/common/fields/MaskedFields';
 import { Save, ArrowBack } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -149,18 +150,16 @@ export default function CustomerFormPage() {
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="E-mail" type="email" value={form.email} onChange={set('email')} fullWidth />
+                  <EmailField label="E-mail" value={form.email} onChange={v => set('email')({ target: { value: v } } as any)} fullWidth />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="CPF" value={form.cpf} onChange={set('cpf')} fullWidth
-                    placeholder="000.000.000-00" />
+                  <DocumentField label="CPF" value={form.cpf} onChange={v => set('cpf')({ target: { value: v } } as any)} fullWidth />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="Telefone" value={form.phone} onChange={set('phone')} fullWidth
-                    placeholder="(00) 00000-0000" />
+                  <PhoneField label="Telefone" value={form.phone} onChange={v => set('phone')({ target: { value: v } } as any)} fullWidth />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField label="Telefone 2" value={form.phone2} onChange={set('phone2')} fullWidth />
+                  <PhoneField label="Telefone 2" value={form.phone2} onChange={v => set('phone2')({ target: { value: v } } as any)} fullWidth />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <DatePicker
@@ -207,7 +206,7 @@ export default function CustomerFormPage() {
               <Typography variant="subtitle1" fontWeight={600} mb={2}>Endereço</Typography>
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={3}>
-                  <TextField label="CEP" value={form.address.zip} onChange={setAddr('zip')} fullWidth placeholder="00000-000" />
+                  <CepField label="CEP" value={form.address.zip} onChange={v => setAddr('zip')({ target: { value: v } } as any)} fullWidth />
                 </Grid>
                 <Grid item xs={12} sm={7}>
                   <TextField label="Rua / Logradouro" value={form.address.street} onChange={setAddr('street')} fullWidth />

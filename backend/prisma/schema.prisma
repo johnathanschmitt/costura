@@ -55,6 +55,14 @@ model User {
   role         Role       @relation(fields: [roleId], references: [id])
   schedules    Schedule[]
   auditLogs    AuditLog[]
+  inventoryMovements InventoryMovement[]
+  assignedWorkOrders  WorkOrder[] @relation("WorkOrderAssignee")
+  deliveredWorkOrders WorkOrder[] @relation("WorkOrderDeliverer")
+  workOrderUpdates    WorkOrderUpdate[]
+  inventoryCounts     InventoryCount[]
+  quoteSends          QuoteSend[]
+  /// Horas de produção que esta costureira dá conta por dia.
+  dailyCapacityHours  Decimal   @default(8) @db.Decimal(4, 2)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   deletedAt    DateTime?
@@ -120,6 +128,8 @@ model Service {
   basePrice      Decimal         @db.Decimal(10, 2)
   unit           String          @default("un")
   active         Boolean         @default(true)
+  /// Horas típicas de execução — usado para estimar a carga da costureira.
+  estimatedHours Decimal?        @db.Decimal(6, 2)
   quoteItems     QuoteItem[]
   workOrderItems WorkOrderItem[]
   createdAt      DateTime        @default(now())
@@ -139,6 +149,7 @@ model Product {
   salePrice      Decimal?        @db.Decimal(10, 2)
   active         Boolean         @default(true)
   inventory      Inventory?
+  movements      InventoryMovement[]
   quoteItems     QuoteItem[]
   workOrderItems WorkOrderItem[]
   createdAt      DateTime        @default(now())
@@ -158,6 +169,62 @@ model Inventory {
   updatedAt   DateTime @updatedAt
 
   @@map("inventory")
+}
+
+// Livro-razão do estoque: uma linha por movimentação, com o saldo resultante
+// gravado. O saldo em `Inventory` é o acumulado; aqui fica a rastreabilidade de
+// como se chegou nele — quem mexeu, quando, por quê e com qual documento.
+model InventoryMovement {
+  id            String       @id @default(cuid())
+  productId     String
+  product       Product      @relation(fields: [productId], references: [id])
+  type          MovementType
+  // Sempre positiva — para exibição.
+  quantity      Decimal      @db.Decimal(10, 3)
+  // Variação com sinal aplicada ao saldo. IN é sempre positiva e OUT negativa,
+  // mas ADJUSTMENT vai para os dois lados — só aqui dá para saber falta de sobra.
+  delta         Decimal      @default(0) @db.Decimal(10, 3)
+  balanceAfter  Decimal      @db.Decimal(10, 3)
+  unitCost      Decimal?     @db.Decimal(10, 2)
+  totalCost     Decimal?     @db.Decimal(10, 2)
+  supplier      String?
+  invoiceNumber String?
+  // Preenchido quando a baixa foi consumo de uma ordem de serviço.
+  workOrderId   String?
+  workOrder     WorkOrder?   @relation(fields: [workOrderId], references: [id])
+  reason        String?
+  notes         String?
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id])
+  attachments   Attachment[]
+  // Agrupa os ajustes feitos numa mesma sessão de contagem.
+  inventoryCountId String?
+  inventoryCount   InventoryCount? @relation(fields: [inventoryCountId], references: [id])
+  occurredAt    DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+
+  @@index([productId, occurredAt])
+  @@index([type, occurredAt])
+  @@map("inventory_movements")
+}
+
+/// Sessão de inventário: a contagem física de um dia, com seus ajustes.
+model InventoryCount {
+  id        String              @id @default(cuid())
+  startedAt DateTime            @default(now())
+  closedAt  DateTime?
+  notes     String?
+  userId    String?
+  user      User?               @relation(fields: [userId], references: [id])
+  movements InventoryMovement[]
+
+  @@map("inventory_counts")
+}
+
+enum MovementType {
+  IN
+  OUT
+  ADJUSTMENT
 }
 
 model Garment {
@@ -184,17 +251,46 @@ model Quote {
   customer    Customer    @relation(fields: [customerId], references: [id])
   status      QuoteStatus @default(DRAFT)
   validUntil  DateTime?
+  // Prazo de entrega prometido à cliente — herdado pela OS na conversão.
+  deliveryDate DateTime?
   notes       String?
+  // Desconto aplicado sobre o subtotal, além dos descontos por item.
   discount    Decimal     @default(0) @db.Decimal(10, 2)
   total       Decimal     @default(0) @db.Decimal(10, 2)
+  // Token do link público: permite a cliente abrir o orçamento sem login.
+  publicToken String?     @unique
   items       QuoteItem[]
   workOrder   WorkOrder?
+  schedules   Schedule[]
+  sends       QuoteSend[]
   attachments Attachment[]
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   deletedAt   DateTime?
 
   @@map("quotes")
+}
+
+/// Registro de cada envio do orçamento à cliente.
+model QuoteSend {
+  id        String       @id @default(cuid())
+  quoteId   String
+  quote     Quote        @relation(fields: [quoteId], references: [id])
+  channel   SendChannel
+  /// Número ou e-mail para onde foi, como estava no momento do envio.
+  recipient String?
+  userId    String?
+  user      User?        @relation(fields: [userId], references: [id])
+  sentAt    DateTime     @default(now())
+
+  @@index([quoteId, sentAt])
+  @@map("quote_sends")
+}
+
+enum SendChannel {
+  WHATSAPP
+  EMAIL
+  LINK
 }
 
 enum QuoteStatus {
@@ -217,6 +313,8 @@ model QuoteItem {
   description String
   quantity    Decimal  @db.Decimal(10, 3)
   unitPrice   Decimal  @db.Decimal(10, 2)
+  // Desconto em reais sobre a linha (quantidade × preço).
+  discount    Decimal  @default(0) @db.Decimal(10, 2)
   total       Decimal  @db.Decimal(10, 2)
   order       Int      @default(0)
 
@@ -246,6 +344,20 @@ model WorkOrder {
   startedAt          DateTime?
   completedAt        DateTime?
   deliveredAt        DateTime?
+  // Costureira responsável pela produção.
+  assignedToId       String?
+  assignedTo         User?               @relation("WorkOrderAssignee", fields: [assignedToId], references: [id])
+  // Medidas da peça, quando diferem da ficha da cliente.
+  measurements       Json?
+  // Entrega: quem do ateliê entregou e quem retirou.
+  deliveredById      String?
+  deliveredBy        User?               @relation("WorkOrderDeliverer", fields: [deliveredById], references: [id])
+  receivedBy         String?
+  // Andamento da produção, em passos de 25%.
+  progressPct        Int                 @default(0)
+  // Horas estimadas de trabalho, base do cálculo de carga da costureira.
+  estimatedHours     Decimal?            @db.Decimal(6, 2)
+  updates            WorkOrderUpdate[]
   notes              String?
   internalNotes      String?
   discount           Decimal             @default(0) @db.Decimal(10, 2)
@@ -255,11 +367,28 @@ model WorkOrder {
   schedules          Schedule[]
   attachments        Attachment[]
   accountsReceivable AccountReceivable[]
+  inventoryMovements InventoryMovement[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   deletedAt          DateTime?
 
   @@map("work_orders")
+}
+
+/// Registro de progresso da OS: o que foi feito, quando e por quem.
+model WorkOrderUpdate {
+  id          String       @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder    @relation(fields: [workOrderId], references: [id])
+  note        String
+  progressPct Int?
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id])
+  attachments Attachment[]
+  createdAt   DateTime     @default(now())
+
+  @@index([workOrderId, createdAt])
+  @@map("work_order_updates")
 }
 
 enum WorkOrderStatus {
@@ -291,6 +420,7 @@ model WorkOrderItem {
   description String
   quantity    Decimal   @db.Decimal(10, 3)
   unitPrice   Decimal   @db.Decimal(10, 2)
+  discount    Decimal   @default(0) @db.Decimal(10, 2)
   total       Decimal   @db.Decimal(10, 2)
   done        Boolean   @default(false)
   order       Int       @default(0)
@@ -306,6 +436,8 @@ model Schedule {
   customer    Customer?    @relation(fields: [customerId], references: [id])
   workOrderId String?
   workOrder   WorkOrder?   @relation(fields: [workOrderId], references: [id])
+  quoteId     String?
+  quote       Quote?       @relation(fields: [quoteId], references: [id])
   userId      String?
   user        User?        @relation(fields: [userId], references: [id])
   type        ScheduleType
@@ -327,6 +459,8 @@ enum ScheduleType {
   FITTING
   DELIVERY
   CONSULTATION
+  MEASUREMENT
+  QUOTE
   OTHER
 }
 
@@ -345,7 +479,12 @@ model CashRegister {
   openedAt       DateTime           @default(now())
   closedAt       DateTime?
   openingBalance Decimal            @default(0) @db.Decimal(10, 2)
+  // Saldo que o sistema calcula que deveria haver na gaveta ao fechar.
   closingBalance Decimal?           @db.Decimal(10, 2)
+  // Dinheiro efetivamente contado pela usuária no fechamento.
+  countedBalance Decimal?           @db.Decimal(10, 2)
+  // countedBalance - closingBalance: negativo = falta, positivo = sobra.
+  difference     Decimal?           @db.Decimal(10, 2)
   status         CashRegisterStatus @default(OPEN)
   notes          String?
   transactions   CashTransaction[]
@@ -369,11 +508,28 @@ model CashTransaction {
   description    String
   amount         Decimal         @db.Decimal(10, 2)
   paymentMethod  PaymentMethod   @default(CASH)
+  // Distingue resultado (venda/despesa) de simples transferência de dinheiro
+  // (sangria/suprimento), que não é receita nem despesa do ateliê.
+  kind           CashMovementKind @default(OTHER)
   referenceId    String?
   referenceType  String?
+  payment        Payment?
   createdAt      DateTime        @default(now())
 
+  @@index([createdAt])
   @@map("cash_transactions")
+}
+
+enum CashMovementKind {
+  SALE
+  EXPENSE
+  /// Sangria: dinheiro sai da gaveta para o banco ou cofre.
+  WITHDRAWAL
+  /// Suprimento: dinheiro entra na gaveta para formar troco.
+  SUPPLY
+  /// Espelho de uma baixa de conta a receber ou a pagar.
+  ACCOUNT
+  OTHER
 }
 
 enum TransactionType {
@@ -391,6 +547,38 @@ enum PaymentMethod {
   OTHER
 }
 
+// Livro-razão de pagamentos: uma linha por baixa realizada, seja de conta a
+// receber ou a pagar. É a fonte da verdade do fluxo de caixa — datada por
+// pagamento, e não pela quitação final da conta.
+model Payment {
+  id                String             @id @default(cuid())
+  type              PaymentType
+  receivableId      String?
+  receivable        AccountReceivable? @relation(fields: [receivableId], references: [id])
+  payableId         String?
+  payable           AccountPayable?    @relation(fields: [payableId], references: [id])
+  amount            Decimal            @db.Decimal(10, 2)
+  method            PaymentMethod
+  // Em dinheiro: quanto a cliente entregou e o troco devolvido.
+  amountTendered    Decimal?           @db.Decimal(10, 2)
+  changeGiven       Decimal?           @db.Decimal(10, 2)
+  paidAt            DateTime           @default(now())
+  // Preenchido apenas quando a baixa foi em espécie e havia caixa aberto.
+  cashTransactionId String?            @unique
+  cashTransaction   CashTransaction?   @relation(fields: [cashTransactionId], references: [id])
+  notes             String?
+  createdAt         DateTime           @default(now())
+
+  @@index([paidAt])
+  @@index([type, paidAt])
+  @@map("payments")
+}
+
+enum PaymentType {
+  RECEIVABLE
+  PAYABLE
+}
+
 model AccountReceivable {
   id            String           @id @default(cuid())
   customerId    String?
@@ -404,11 +592,21 @@ model AccountReceivable {
   paidAt        DateTime?
   status        ReceivableStatus @default(PENDING)
   paymentMethod PaymentMethod?
+  payments      Payment[]
+  // Parcelamento: as parcelas de uma mesma venda compartilham o grupo.
+  installmentGroupId String?
+  installmentNumber  Int?
+  installmentTotal   Int?
+  // Sinal (entrada) é separado do pagamento final para leitura do fluxo.
+  isDownPayment Boolean          @default(false)
+  // Categoria de receita, para o DRE.
+  category      String?
   notes         String?
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
   deletedAt     DateTime?
 
+  @@index([status, dueDate])
   @@map("accounts_receivable")
 }
 
@@ -431,11 +629,18 @@ model AccountPayable {
   paidAt        DateTime?
   status        PayableStatus @default(PENDING)
   paymentMethod PaymentMethod?
+  payments      Payment[]
+  // Recorrência: a conta-mãe gera as próximas ocorrências automaticamente.
+  recurrence    Recurrence    @default(NONE)
+  parentId      String?
+  parent        AccountPayable?  @relation("PayableRecurrence", fields: [parentId], references: [id])
+  occurrences   AccountPayable[] @relation("PayableRecurrence")
   notes         String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   deletedAt     DateTime?
 
+  @@index([status, dueDate])
   @@map("accounts_payable")
 }
 
@@ -447,24 +652,64 @@ enum PayableStatus {
   CANCELLED
 }
 
+enum Recurrence {
+  NONE
+  MONTHLY
+  YEARLY
+}
+
+/// Categorias de receita e despesa. Alimentam os seletores e o DRE.
+model FinancialCategory {
+  id       String       @id @default(cuid())
+  name     String
+  type     CategoryType
+  active   Boolean      @default(true)
+  /// Categorias padrão do sistema não podem ser removidas.
+  isSystem Boolean      @default(false)
+  createdAt DateTime    @default(now())
+
+  @@unique([name, type])
+  @@map("financial_categories")
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+}
+
 // ── Anexos ────────────────────────────────────────────────────────────────────
 
 model Attachment {
-  id           String     @id @default(cuid())
-  fileName     String
-  originalName String
-  mimeType     String
-  size         Int
-  url          String
-  customerId   String?
-  customer     Customer?  @relation(fields: [customerId], references: [id])
-  quoteId      String?
-  quote        Quote?     @relation(fields: [quoteId], references: [id])
-  workOrderId  String?
-  workOrder    WorkOrder? @relation(fields: [workOrderId], references: [id])
-  createdAt    DateTime   @default(now())
+  id                  String             @id @default(cuid())
+  fileName            String
+  originalName        String
+  mimeType            String
+  size                Int
+  url                 String
+  customerId          String?
+  customer            Customer?          @relation(fields: [customerId], references: [id])
+  quoteId             String?
+  quote               Quote?             @relation(fields: [quoteId], references: [id])
+  workOrderId         String?
+  workOrder           WorkOrder?         @relation(fields: [workOrderId], references: [id])
+  inventoryMovementId String?
+  inventoryMovement   InventoryMovement? @relation(fields: [inventoryMovementId], references: [id])
+  workOrderUpdateId   String?
+  workOrderUpdate     WorkOrderUpdate?   @relation(fields: [workOrderUpdateId], references: [id])
+  // Separa foto de referência de foto do tecido recebido, etc.
+  kind                AttachmentKind     @default(DOCUMENT)
+  caption             String?
+  createdAt           DateTime           @default(now())
 
+  @@index([workOrderId, kind])
   @@map("attachments")
+}
+
+enum AttachmentKind {
+  DOCUMENT
+  REFERENCE
+  FABRIC
+  PROGRESS
 }
 
 // ── Configurações do negócio ──────────────────────────────────────────────────
@@ -481,6 +726,18 @@ model BusinessInfo {
   website     String?
   taxId       String?
   footerText  String?
+  // ── Redes sociais ──
+  /// WhatsApp comercial do ateliê (o que aparece nos documentos).
+  whatsapp    String?
+  instagram   String?
+  facebook    String?
+  tiktok      String?
+  // Dias de validade padrão de um orçamento enviado; passado disso ele expira.
+  quoteValidityDays Int @default(15)
+  // Fila de uma costureira acima disto (em dias de trabalho) dispara alerta.
+  queueAlertDays    Int @default(7)
+  /// Modelo da mensagem de WhatsApp. Aceita {cliente} {numero} {total} {link} {ateliê}.
+  whatsappTemplate  String? @db.Text
   updatedAt   DateTime @updatedAt
 
   @@map("business_info")

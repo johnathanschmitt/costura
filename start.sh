@@ -171,8 +171,8 @@ ok "Servidores iniciados (PID $DEV_PID)"
 sep
 ok "Sistema em desenvolvimento"
 ok "Frontend: http://localhost:5173"
-ok "Backend:  http://localhost:3000/api"
-ok "Swagger:  http://localhost:3000/docs"
+ok "Backend:  http://localhost:3001/api"
+ok "Swagger:  http://localhost:3001/docs"
 ok "MinIO:    http://localhost:9001"
 [ "$WITH_TOOLS" = true ] && ok "PgAdmin:  http://localhost:5050"
 sep

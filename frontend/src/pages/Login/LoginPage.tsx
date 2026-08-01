@@ -18,15 +18,28 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    // O try cobre só a chamada: antes ele envolvia também a gravação da sessão
+    // e a navegação, então qualquer falha depois do login virava "senha
+    // inválida" — e a pessoa ficava presa aqui sem entender por quê.
+    let data;
     try {
-      const { data } = await api.post('/auth/login', { email, password });
-      setAuth(data.access_token, data.user);
-      navigate('/dashboard');
-    } catch {
-      setError('E-mail ou senha inválidos');
-    } finally {
+      ({ data } = await api.post('/auth/login', { email, password }));
+    } catch (e: any) {
+      const status = e?.response?.status;
+      setError(
+        status === 401 || status === 400
+          ? 'E-mail ou senha inválidos'
+          : status
+            ? `Não foi possível entrar (erro ${status}). Tente novamente.`
+            : 'Não foi possível falar com o servidor. Verifique se o sistema está no ar.',
+      );
       setLoading(false);
+      return;
     }
+
+    setAuth(data.access_token, data.user);
+    setLoading(false);
+    navigate('/dashboard');
   };
 
   return (
@@ -67,8 +80,8 @@ export default function LoginPage() {
                 ),
               }}
             />
-            <Button type="submit" variant="contained" size="large" fullWidth loading={loading}>
-              Entrar
+            <Button type="submit" variant="contained" size="large" fullWidth disabled={loading}>
+              {loading ? 'Entrando…' : 'Entrar'}
             </Button>
           </Box>
         </CardContent>

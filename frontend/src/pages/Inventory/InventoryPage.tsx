@@ -1,69 +1,65 @@
-import {
-  Box, Typography, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Paper, Chip, Skeleton, LinearProgress, Tooltip,
-} from '@mui/material';
-import { Warning } from '@mui/icons-material';
+import { useState } from 'react';
+import { Box, Typography, Tabs, Tab, Button, Badge, Alert } from '@mui/material';
+import { Add } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../services/api';
+import StockTab from './StockTab';
+import MovementsTab from './MovementsTab';
+import CountTab from './CountTab';
+import EntryDialog from './EntryDialog';
 
 export default function InventoryPage() {
-  const { data = [], isLoading } = useQuery({
-    queryKey: ['inventory'],
-    queryFn: () => api.get('/inventory').then(r => r.data),
+  const [tab, setTab] = useState(0);
+  const [entryOpen, setEntryOpen] = useState(false);
+
+  const { data: lowStock = [] } = useQuery({
+    queryKey: ['low-stock'],
+    queryFn: () => api.get('/inventory/low-stock').then(r => r.data),
+    refetchInterval: 60_000,
   });
 
   return (
     <Box>
-      <Typography variant="h5" mb={2}>Estoque</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+        <Typography variant="h5">Estoque</Typography>
+        <Button variant="contained" startIcon={<Add />} onClick={() => setEntryOpen(true)}>
+          Entrada de Material
+        </Button>
+      </Box>
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Produto</TableCell>
-              <TableCell>SKU</TableCell>
-              <TableCell align="center">Qtd</TableCell>
-              <TableCell align="center">Mínimo</TableCell>
-              <TableCell>Nível</TableCell>
-              <TableCell>Localização</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {isLoading ? Array.from({ length: 5 }).map((_, i) => (
-              <TableRow key={i}>{[1,2,3,4,5,6].map(j => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
-            )) : data.map((inv: any) => {
-              const qty = Number(inv.quantity);
-              const min = Number(inv.minQuantity);
-              const pct = min > 0 ? Math.min((qty / (min * 2)) * 100, 100) : 100;
-              const low = qty <= min;
-              return (
-                <TableRow key={inv.id} hover>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {low && <Tooltip title="Estoque baixo"><Warning color="warning" fontSize="small" /></Tooltip>}
-                      {inv.product?.name}
-                    </Box>
-                  </TableCell>
-                  <TableCell>{inv.product?.sku ?? '—'}</TableCell>
-                  <TableCell align="center">
-                    <Chip label={qty} size="small" color={low ? 'error' : 'default'} />
-                  </TableCell>
-                  <TableCell align="center">{min}</TableCell>
-                  <TableCell sx={{ minWidth: 120 }}>
-                    <LinearProgress
-                      variant="determinate"
-                      value={pct}
-                      color={low ? 'error' : pct < 50 ? 'warning' : 'success'}
-                      sx={{ borderRadius: 1 }}
-                    />
-                  </TableCell>
-                  <TableCell>{inv.location ?? '—'}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      {lowStock.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {lowStock.length === 1 ? (
+            <>O material <strong>{lowStock[0].product?.name}</strong> está no estoque mínimo.</>
+          ) : (
+            <>
+              {lowStock.length} materiais estão no estoque mínimo:{' '}
+              <strong>
+                {lowStock.slice(0, 3).map((i: any) => i.product?.name).join(', ')}
+                {lowStock.length > 3 && ` e mais ${lowStock.length - 3}`}
+              </strong>.
+            </>
+          )}
+        </Alert>
+      )}
+
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
+        <Tab
+          label={
+            <Badge badgeContent={lowStock.length || undefined} color="warning">
+              Saldos
+            </Badge>
+          }
+        />
+        <Tab label="Movimentações" />
+        <Tab label="Inventário" />
+      </Tabs>
+
+      {tab === 0 && <StockTab />}
+      {tab === 1 && <MovementsTab />}
+      {tab === 2 && <CountTab />}
+
+      <EntryDialog open={entryOpen} onClose={() => setEntryOpen(false)} />
     </Box>
   );
 }

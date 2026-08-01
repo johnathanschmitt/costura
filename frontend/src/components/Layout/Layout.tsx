@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box, Drawer, AppBar, Toolbar, List, ListItem, ListItemButton,
   ListItemIcon, ListItemText, Typography, IconButton, Avatar,
-  Divider, InputBase, Tooltip, Collapse,
+  Divider, Tooltip, Collapse, useMediaQuery, useTheme,
 } from '@mui/material';
 import {
   Dashboard, People, RequestQuote, Assignment, CalendarMonth,
-  Inventory2, AccountBalance, Menu as MenuIcon, Search,
+  Inventory2, AccountBalance, Menu as MenuIcon,
   Logout, ChevronLeft, ContentCut,
   ExpandLess, ExpandMore, MiscellaneousServices, Category, BarChart, Settings,
   CheckroomOutlined,
@@ -14,6 +14,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/auth.store';
 import NotificationBell from './NotificationBell';
+import SearchBar from './SearchBar';
 
 const DRAWER_WIDTH = 240;
 
@@ -40,11 +41,23 @@ const navItems = [
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
+  const theme = useTheme();
+  // No celular o menu não pode ocupar espaço fixo: vira gaveta sobreposta, que
+  // começa fechada e se fecha sozinha ao navegar.
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [open, setOpen] = useState(!isMobile);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
+
+  // Ao girar o aparelho ou redimensionar, o menu acompanha o formato da tela.
+  useEffect(() => { setOpen(!isMobile); }, [isMobile]);
+
+  const go = (path: string) => {
+    navigate(path);
+    if (isMobile) setOpen(false);
+  };
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
@@ -53,15 +66,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <IconButton color="inherit" onClick={() => setOpen(o => !o)} edge="start">
             {open ? <ChevronLeft /> : <MenuIcon />}
           </IconButton>
-          <Typography variant="h6" sx={{ flexShrink: 0 }}>Ateliê</Typography>
+          <Typography variant="h6" sx={{ flexShrink: 0, display: { xs: 'none', sm: 'block' } }}>Ateliê</Typography>
 
-          <Box sx={{
-            flexGrow: 1, mx: 2, display: 'flex', alignItems: 'center',
-            bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, px: 1.5, py: 0.5,
-          }}>
-            <Search sx={{ mr: 1, opacity: 0.8, fontSize: 20 }} />
-            <InputBase placeholder="Pesquisar…" sx={{ color: 'inherit', fontSize: 14, width: '100%' }} />
-          </Box>
+          <SearchBar />
 
           <NotificationBell />
           <Tooltip title="Sair">
@@ -74,12 +81,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </AppBar>
 
       <Drawer
-        variant="persistent"
+        variant={isMobile ? 'temporary' : 'persistent'}
         open={open}
+        onClose={() => setOpen(false)}
+        ModalProps={{ keepMounted: true }}
         sx={{
-          width: open ? DRAWER_WIDTH : 0,
+          width: open && !isMobile ? DRAWER_WIDTH : 0,
           flexShrink: 0,
-          '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box', mt: '64px' },
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            // Na gaveta sobreposta o menu começa no topo, sem o vão do AppBar.
+            mt: isMobile ? 0 : '64px',
+          },
         }}
       >
         <Box sx={{ overflow: 'auto', py: 1 }}>
@@ -106,7 +120,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                           return (
                             <ListItem key={child.path} disablePadding>
                               <ListItemButton
-                                onClick={() => navigate(child.path)}
+                                onClick={() => go(child.path)}
                                 selected={childActive}
                                 sx={{
                                   mx: 1, pl: 4, borderRadius: 2,
@@ -127,7 +141,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               return (
                 <ListItem key={item.path} disablePadding>
                   <ListItemButton
-                    onClick={() => navigate(item.path)}
+                    onClick={() => go(item.path)}
                     selected={active}
                     sx={{
                       mx: 1, borderRadius: 2,
@@ -149,7 +163,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </Box>
       </Drawer>
 
-      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: '64px', bgcolor: 'background.default', minHeight: 'calc(100vh - 64px)' }}>
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          // Sem `minWidth: 0` um item de flex não encolhe abaixo do próprio
+          // conteúdo: uma tela larga (o quadro de OS, uma tabela grande) empurra
+          // o layout inteiro e cria rolagem horizontal na página.
+          minWidth: 0,
+          p: { xs: 1.5, sm: 3 },
+          mt: '64px',
+          bgcolor: 'background.default',
+          minHeight: 'calc(100vh - 64px)',
+        }}
+      >
         {children}
       </Box>
     </Box>

@@ -16,6 +16,8 @@ export interface LineItem {
   description: string;
   quantity: number;
   unitPrice: number;
+  /** Desconto em reais aplicado sobre a linha. */
+  discount?: number;
   total: number;
 }
 
@@ -37,14 +39,18 @@ export default function ItemsEditor({ items, onChange, readOnly }: Props) {
   });
 
   const addItem = () => {
-    onChange([...items, { type: 'SERVICE', description: '', quantity: 1, unitPrice: 0, total: 0 }]);
+    onChange([...items, { type: 'SERVICE', description: '', quantity: 1, unitPrice: 0, discount: 0, total: 0 }]);
   };
 
   const updateItem = (index: number, patch: Partial<LineItem>) => {
     const updated = items.map((item, i) => {
       if (i !== index) return item;
       const next = { ...item, ...patch };
-      next.total = next.quantity * next.unitPrice;
+      const gross = next.quantity * next.unitPrice;
+      // O desconto nunca pode passar do valor bruto da linha — o backend
+      // recusaria, então limitamos aqui para o total exibido bater com o salvo.
+      next.discount = Math.min(Math.max(next.discount ?? 0, 0), gross);
+      next.total = gross - next.discount;
       return next;
     });
     onChange(updated);
@@ -84,6 +90,7 @@ export default function ItemsEditor({ items, onChange, readOnly }: Props) {
             <TableCell>Descrição / Item</TableCell>
             <TableCell width={90} align="center">Qtd</TableCell>
             <TableCell width={120} align="right">Preço unit.</TableCell>
+            <TableCell width={110} align="right">Desconto</TableCell>
             <TableCell width={120} align="right">Total</TableCell>
             {!readOnly && <TableCell width={48} />}
           </TableRow>
@@ -163,7 +170,24 @@ export default function ItemsEditor({ items, onChange, readOnly }: Props) {
               </TableCell>
 
               <TableCell align="right">
+                <TextField
+                  size="small"
+                  type="number"
+                  value={item.discount ?? 0}
+                  onChange={e => updateItem(i, { discount: parseFloat(e.target.value) || 0 })}
+                  inputProps={{ min: 0, step: 0.01, style: { textAlign: 'right' } }}
+                  disabled={readOnly}
+                  sx={{ width: 90 }}
+                />
+              </TableCell>
+
+              <TableCell align="right">
                 <Typography variant="body2" fontWeight={500}>{fmt(item.total)}</Typography>
+                {(item.discount ?? 0) > 0 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ textDecoration: 'line-through' }}>
+                    {fmt(item.quantity * item.unitPrice)}
+                  </Typography>
+                )}
               </TableCell>
 
               {!readOnly && (
@@ -178,7 +202,7 @@ export default function ItemsEditor({ items, onChange, readOnly }: Props) {
 
           {items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={6} align="center">
+              <TableCell colSpan={7} align="center">
                 <Typography variant="body2" color="text.secondary" py={2}>
                   Nenhum item adicionado
                 </Typography>

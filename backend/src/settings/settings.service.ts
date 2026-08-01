@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_TEMPLATE, TEMPLATE_VARS } from '../quotes/quote-share';
 
 @Injectable()
 export class SettingsService {
@@ -126,14 +127,23 @@ export class SettingsService {
     if (!info) {
       info = await this.prisma.businessInfo.create({ data: {} });
     }
-    return info;
+    // O modelo padrão vem junto para a tela de configuração poder mostrá-lo e
+    // oferecer "restaurar" sem duplicar o texto no frontend.
+    return {
+      ...info,
+      whatsappTemplateDefault: DEFAULT_TEMPLATE,
+      whatsappTemplateVars: TEMPLATE_VARS,
+    };
   }
 
   async updateBusinessInfo(data: {
     name?: string; logoBase64?: string | null; tagline?: string | null;
     address?: string | null; city?: string | null; phone?: string | null;
     email?: string | null; website?: string | null; taxId?: string | null;
-    footerText?: string | null;
+    footerText?: string | null; quoteValidityDays?: number; queueAlertDays?: number;
+    whatsappTemplate?: string | null;
+    whatsapp?: string | null; instagram?: string | null;
+    facebook?: string | null; tiktok?: string | null;
   }) {
     let info = await this.prisma.businessInfo.findFirst();
     if (!info) {

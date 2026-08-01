@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import * as Minio from 'minio';
 import { PrismaService } from '../prisma/prisma.service';
 
+/** Entidades que aceitam anexo. O nome vira a coluna `<entidade>Id`. */
+export const ATTACHMENT_ENTITIES = ['customer', 'workOrder', 'quote', 'inventoryMovement'] as const;
+export type AttachmentEntity = (typeof ATTACHMENT_ENTITIES)[number];
+
 @Injectable()
 export class AttachmentsService {
   private minio: Minio.Client;
@@ -32,7 +36,7 @@ export class AttachmentsService {
 
   async upload(
     file: Express.Multer.File,
-    entityType: 'customer' | 'workOrder' | 'quote',
+    entityType: AttachmentEntity,
     entityId: string,
   ) {
     await this.ensureBucket();
@@ -55,7 +59,7 @@ export class AttachmentsService {
     });
   }
 
-  async list(entityType: 'customer' | 'workOrder' | 'quote', entityId: string) {
+  async list(entityType: AttachmentEntity, entityId: string) {
     return this.prisma.attachment.findMany({
       where: { [`${entityType}Id`]: entityId },
       orderBy: { createdAt: 'desc' },

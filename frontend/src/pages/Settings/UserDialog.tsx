@@ -4,6 +4,7 @@ import {
   Button, TextField, MenuItem, Switch, FormControlLabel,
   Grid, InputAdornment, IconButton, Alert, CircularProgress,
 } from '@mui/material';
+import { PhoneField, EmailField } from '../../components/common/fields/MaskedFields';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
@@ -98,10 +99,10 @@ export default function UserDialog({ open, onClose, existing }: Props) {
             <TextField label="Nome" value={form.name} onChange={set('name')} fullWidth required />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField label="E-mail" type="email" value={form.email} onChange={set('email')} fullWidth required />
+            <EmailField label="E-mail" value={form.email} onChange={v => set('email')({ target: { value: v } } as any)} fullWidth required />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <TextField label="Telefone" value={form.phone} onChange={set('phone')} fullWidth />
+            <PhoneField label="Telefone" value={form.phone} onChange={v => set('phone')({ target: { value: v } } as any)} fullWidth />
           </Grid>
           <Grid item xs={12} sm={isEdit ? 8 : 12}>
             <TextField

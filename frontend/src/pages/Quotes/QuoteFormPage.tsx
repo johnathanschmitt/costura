@@ -3,27 +3,34 @@ import {
   Box, Typography, Button, Grid, TextField, Card, CardContent,
   Breadcrumbs, Link, Alert, Chip,
 } from '@mui/material';
-import { Save, ArrowBack, CheckCircle, Assignment, Print } from '@mui/icons-material';
+import {
+  Save, ArrowBack, CheckCircle, Assignment, Print, PersonAdd, ContentCopy, WhatsApp,
+} from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatePicker } from '@mui/x-date-pickers';
 import dayjs, { Dayjs } from 'dayjs';
 import api from '../../services/api';
 import { useAutosave } from '../../hooks/useAutosave';
+import { useToast } from '../../store/toast.store';
 import AutosaveIndicator from '../../components/common/AutosaveIndicator';
 import CustomerAutocomplete from '../../components/common/CustomerAutocomplete';
 import ItemsEditor, { LineItem } from '../../components/common/ItemsEditor';
+import QuickCustomerDialog from '../../components/common/QuickCustomerDialog';
+import ConvertDialog from './ConvertDialog';
+import ShareDialog from './ShareDialog';
 
 interface QuoteForm {
   customer: any | null;
   validUntil: Dayjs | null;
+  deliveryDate: Dayjs | null;
   notes: string;
   discount: number;
   items: LineItem[];
 }
 
 const EMPTY: QuoteForm = {
-  customer: null, validUntil: null, notes: '', discount: 0, items: [],
+  customer: null, validUntil: null, deliveryDate: null, notes: '', discount: 0, items: [],
 };
 
 export default function QuoteFormPage() {
@@ -31,6 +38,7 @@ export default function QuoteFormPage() {
   const isEdit = Boolean(id);
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const toast = useToast();
 
   const [form, setForm] = useState<QuoteForm>(EMPTY);
   const [error, setError] = useState('');
@@ -46,6 +54,7 @@ export default function QuoteFormPage() {
       setForm({
         customer: existing.customer ?? null,
         validUntil: existing.validUntil ? dayjs(existing.validUntil) : null,
+        deliveryDate: existing.deliveryDate ? dayjs(existing.deliveryDate) : null,
         notes: existing.notes ?? '',
         discount: parseFloat(existing.discount ?? 0),
         items: existing.items?.map((i: any) => ({
@@ -56,16 +65,20 @@ export default function QuoteFormPage() {
           description: i.description,
           quantity: parseFloat(i.quantity),
           unitPrice: parseFloat(i.unitPrice),
+          discount: parseFloat(i.discount ?? 0),
           total: parseFloat(i.total),
         })) ?? [],
       });
     }
   }, [existing]);
 
+  // Campos vazios são omitidos: o ValidationPipe do backend recusa null onde
+  // espera string ou data.
   const buildPayload = useCallback((f: QuoteForm) => ({
     customerId: f.customer?.id,
-    validUntil: f.validUntil?.toISOString() ?? null,
-    notes: f.notes || null,
+    validUntil: f.validUntil?.toISOString() ?? undefined,
+    deliveryDate: f.deliveryDate?.toISOString() ?? undefined,
+    notes: f.notes || undefined,
     discount: f.discount,
     items: f.items.map(({ id: _id, total: _total, ...rest }) => rest),
   }), []);
@@ -91,14 +104,26 @@ export default function QuoteFormPage() {
     },
   });
 
-  const convertMutation = useMutation({
-    mutationFn: () => api.post(`/quotes/${id}/convert`),
-    onSuccess: (res) => {
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [quickCustomerOpen, setQuickCustomerOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  const reopenMutation = useMutation({
+    mutationFn: () => api.patch(`/quotes/${id}/reopen`),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['quote', id] });
-      qc.invalidateQueries({ queryKey: ['work-orders'] });
-      navigate(`/work-orders/${res.data.id}/edit`);
+      qc.invalidateQueries({ queryKey: ['quotes'] });
     },
-    onError: (e: any) => setError(e.response?.data?.message ?? 'Erro ao converter'),
+    onError: (e: any) => setError(e.response?.data?.message ?? 'Erro ao reabrir'),
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: () => api.post(`/quotes/${id}/duplicate`),
+    onSuccess: res => {
+      qc.invalidateQueries({ queryKey: ['quotes'] });
+      navigate(`/quotes/${res.data.id}/edit`);
+    },
+    onError: (e: any) => setError(e.response?.data?.message ?? 'Erro ao duplicar'),
   });
 
   const handleSave = async () => {
@@ -106,8 +131,11 @@ export default function QuoteFormPage() {
     if (form.items.length === 0) { setError('Adicione pelo menos um item'); return; }
     setError('');
     try {
+      // Ao criar, o `saveFn` já leva para o orçamento recém-salvo — é lá que
+      // ficam Enviar por WhatsApp, Imprimir e Converter em OS. Voltar para a
+      // lista aqui obrigava a abrir o orçamento de novo para qualquer um deles.
       await saveNow();
-      if (!isEdit) navigate('/quotes');
+      toast(isEdit ? 'Orçamento salvo' : 'Orçamento criado');
     } catch {
       setError('Erro ao salvar orçamento');
     }
@@ -164,6 +192,16 @@ export default function QuoteFormPage() {
               Imprimir / PDF
             </Button>
           )}
+          {isEdit && (
+            <Button
+              variant="outlined"
+              color="success"
+              startIcon={<WhatsApp />}
+              onClick={() => setShareOpen(true)}
+            >
+              Enviar por WhatsApp
+            </Button>
+          )}
           {isEdit && existing?.status === 'DRAFT' && (
             <Button
               variant="outlined"
@@ -175,15 +213,25 @@ export default function QuoteFormPage() {
               Aprovar
             </Button>
           )}
-          {isEdit && isApproved && !linkedWO && (
+          {isEdit && !linkedWO && ['DRAFT', 'SENT', 'APPROVED'].includes(existing?.status ?? '') && (
             <Button
               variant="contained"
               color="secondary"
               startIcon={<Assignment />}
-              onClick={() => convertMutation.mutate()}
-              disabled={convertMutation.isPending}
+              onClick={() => setConvertOpen(true)}
             >
-              Converter em OS
+              {isApproved ? 'Converter em OS' : 'Aprovar e criar OS'}
+            </Button>
+          )}
+          {isEdit && ['REJECTED', 'EXPIRED'].includes(existing?.status ?? '') && (
+            <Button variant="outlined" onClick={() => reopenMutation.mutate()} disabled={reopenMutation.isPending}>
+              Reabrir
+            </Button>
+          )}
+          {isEdit && (
+            <Button variant="outlined" startIcon={<ContentCopy />} onClick={() => duplicateMutation.mutate()}
+              disabled={duplicateMutation.isPending}>
+              Duplicar
             </Button>
           )}
           {isDraft && (
@@ -204,19 +252,51 @@ export default function QuoteFormPage() {
               <Typography variant="subtitle1" fontWeight={600} mb={2}>Dados do Orçamento</Typography>
               <Grid container spacing={2}>
                 <Grid item xs={12}>
-                  <CustomerAutocomplete
-                    value={form.customer}
-                    onChange={c => setForm(f => ({ ...f, customer: c }))}
-                    required
-                    error={!form.customer && !!error}
-                  />
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                    <Box sx={{ flex: 1 }}>
+                      <CustomerAutocomplete
+                        value={form.customer}
+                        onChange={c => setForm(f => ({ ...f, customer: c }))}
+                        required
+                        error={!form.customer && !!error}
+                      />
+                    </Box>
+                    <Button
+                      variant="outlined"
+                      startIcon={<PersonAdd />}
+                      onClick={() => setQuickCustomerOpen(true)}
+                      sx={{ mt: 0.5, whiteSpace: 'nowrap' }}
+                    >
+                      Nova
+                    </Button>
+                  </Box>
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <DatePicker
                     label="Válido até"
                     value={form.validUntil}
                     onChange={v => setForm(f => ({ ...f, validUntil: v }))}
-                    slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        size: 'small',
+                        helperText: 'Depois desta data o orçamento expira sozinho',
+                      },
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <DatePicker
+                    label="Prazo de entrega estimado"
+                    value={form.deliveryDate}
+                    onChange={v => setForm(f => ({ ...f, deliveryDate: v }))}
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        size: 'small',
+                        helperText: 'Vira o prazo da OS na conversão',
+                      },
+                    }}
                   />
                 </Grid>
               </Grid>
@@ -292,6 +372,19 @@ export default function QuoteFormPage() {
           </Card>
         </Grid>
       </Grid>
+
+      <QuickCustomerDialog
+        open={quickCustomerOpen}
+        onClose={() => setQuickCustomerOpen(false)}
+        onCreated={c => setForm(f => ({ ...f, customer: c }))}
+      />
+
+      <ConvertDialog
+        quote={convertOpen ? existing : null}
+        onClose={() => setConvertOpen(false)}
+      />
+
+      <ShareDialog quote={shareOpen ? existing : null} onClose={() => setShareOpen(false)} />
     </Box>
   );
 }

@@ -1,14 +1,23 @@
 import {
   Controller, Post, Get, Delete, Param, Query,
   UseGuards, UseInterceptors, UploadedFile, ParseFilePipe,
-  MaxFileSizeValidator,
+  MaxFileSizeValidator, ParseEnumPipe, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { AttachmentsService } from './attachments.service';
+import { AttachmentsService, ATTACHMENT_ENTITIES, AttachmentEntity } from './attachments.service';
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+
+/**
+ * `entityType` vira nome de coluna no Prisma (`<entidade>Id`), então precisa vir
+ * de uma lista fechada — não do que o cliente mandar.
+ */
+const parseEntity = new ParseEnumPipe(
+  ATTACHMENT_ENTITIES.reduce((acc, e) => ({ ...acc, [e]: e }), {}),
+  { exceptionFactory: () => new BadRequestException(`entityType deve ser: ${ATTACHMENT_ENTITIES.join(', ')}`) },
+);
 
 @ApiTags('attachments')
 @ApiBearerAuth()
@@ -24,7 +33,7 @@ export class AttachmentsController {
   upload(
     @UploadedFile(new ParseFilePipe({ validators: [new MaxFileSizeValidator({ maxSize: MAX_SIZE })] }))
     file: Express.Multer.File,
-    @Query('entityType') entityType: 'customer' | 'workOrder' | 'quote',
+    @Query('entityType', parseEntity) entityType: AttachmentEntity,
     @Query('entityId') entityId: string,
   ) {
     return this.service.upload(file, entityType, entityId);
@@ -33,7 +42,7 @@ export class AttachmentsController {
   @ApiOperation({ summary: 'Listar anexos de uma entidade' })
   @Get()
   list(
-    @Query('entityType') entityType: 'customer' | 'workOrder' | 'quote',
+    @Query('entityType', parseEntity) entityType: AttachmentEntity,
     @Query('entityId') entityId: string,
   ) {
     return this.service.list(entityType, entityId);

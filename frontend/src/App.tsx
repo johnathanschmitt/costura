@@ -10,11 +10,16 @@ import CustomerFormPage from './pages/Customers/CustomerFormPage';
 import QuotesPage from './pages/Quotes/QuotesPage';
 import QuoteFormPage from './pages/Quotes/QuoteFormPage';
 import QuotePrintPage from './pages/Quotes/QuotePrintPage';
+import PublicQuotePage from './pages/Quotes/PublicQuotePage';
 import WorkOrdersPage from './pages/WorkOrders/WorkOrdersPage';
 import WorkOrderFormPage from './pages/WorkOrders/WorkOrderFormPage';
+import WorkOrderReceiptPage from './pages/WorkOrders/WorkOrderReceiptPage';
 import SchedulePage from './pages/Schedule/SchedulePage';
 import InventoryPage from './pages/Inventory/InventoryPage';
 import FinancialPage from './pages/Financial/FinancialPage';
+import CashClosingReportPage from './pages/Financial/CashClosingReportPage';
+import PaymentReceiptPage from './pages/Financial/PaymentReceiptPage';
+import MonthlyClosingPage from './pages/Financial/MonthlyClosingPage';
 import ServicesPage from './pages/Catalog/ServicesPage';
 import ServiceFormPage from './pages/Catalog/ServiceFormPage';
 import ProductsPage from './pages/Catalog/ProductsPage';
@@ -23,6 +28,7 @@ import ReportsPage from './pages/Reports/ReportsPage';
 import SettingsPage from './pages/Settings/SettingsPage';
 import GarmentsPage from './pages/Garments/GarmentsPage';
 import GarmentFormPage from './pages/Garments/GarmentFormPage';
+import NotFoundPage from './pages/NotFound/NotFoundPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore(s => s.token);
@@ -35,7 +41,12 @@ export default function App() {
       <CssBaseline />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/orcamento/:token" element={<PublicQuotePage />} />
         <Route path="/quotes/:id/print" element={<PrivateRoute><QuotePrintPage /></PrivateRoute>} />
+        <Route path="/work-orders/:id/receipt" element={<PrivateRoute><WorkOrderReceiptPage /></PrivateRoute>} />
+        <Route path="/financial/cash-register/:id/report" element={<PrivateRoute><CashClosingReportPage /></PrivateRoute>} />
+        <Route path="/financial/payments/:id/receipt" element={<PrivateRoute><PaymentReceiptPage /></PrivateRoute>} />
+        <Route path="/financial/fechamento/:month" element={<PrivateRoute><MonthlyClosingPage /></PrivateRoute>} />
         <Route
           path="/*"
           element={
@@ -67,6 +78,7 @@ export default function App() {
                   <Route path="catalog/garments" element={<GarmentsPage />} />
                   <Route path="catalog/garments/new" element={<GarmentFormPage />} />
                   <Route path="catalog/garments/:id/edit" element={<GarmentFormPage />} />
+                  <Route path="*" element={<NotFoundPage />} />
                 </Routes>
               </Layout>
             </PrivateRoute>

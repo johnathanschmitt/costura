@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Box, Button, Card, CardContent, TextField, Typography,
-  Grid, Avatar, IconButton, Divider, CircularProgress,
+  Grid, Avatar, IconButton, Divider, CircularProgress, InputAdornment,
 } from '@mui/material';
-import { Save, Upload, Delete } from '@mui/icons-material';
+import { PhoneField, EmailField } from '../../components/common/fields/MaskedFields';
+import {
+  Save, Upload, Delete, WhatsApp, Instagram, Facebook, MusicNote,
+} from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
 import { useToast } from '../../store/toast.store';
@@ -16,6 +19,10 @@ interface BusinessForm {
   phone: string;
   email: string;
   website: string;
+  whatsapp: string;
+  instagram: string;
+  facebook: string;
+  tiktok: string;
   taxId: string;
   footerText: string;
   logoBase64: string | null;
@@ -24,6 +31,7 @@ interface BusinessForm {
 const EMPTY: BusinessForm = {
   name: '', tagline: '', address: '', city: '', phone: '',
   email: '', website: '', taxId: '', footerText: '', logoBase64: null,
+  whatsapp: '', instagram: '', facebook: '', tiktok: '',
 };
 
 export default function BusinessInfoTab() {
@@ -47,6 +55,10 @@ export default function BusinessInfoTab() {
         phone: data.phone ?? '',
         email: data.email ?? '',
         website: data.website ?? '',
+        whatsapp: data.whatsapp ?? '',
+        instagram: data.instagram ?? '',
+        facebook: data.facebook ?? '',
+        tiktok: data.tiktok ?? '',
         taxId: data.taxId ?? '',
         footerText: data.footerText ?? '',
         logoBase64: data.logoBase64 ?? null,
@@ -58,16 +70,16 @@ export default function BusinessInfoTab() {
     mutationFn: (payload: BusinessForm) => api.patch('/settings/business', payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['business-info'] });
-      toast.show('Dados salvos com sucesso', 'success');
+      toast('Dados salvos com sucesso', 'success');
     },
-    onError: () => toast.show('Erro ao salvar', 'error'),
+    onError: () => toast('Erro ao salvar', 'error'),
   });
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
-      toast.show('A logo deve ter no máximo 2 MB', 'error');
+      toast('A logo deve ter no máximo 2 MB', 'error');
       return;
     }
     const reader = new FileReader();
@@ -156,10 +168,10 @@ export default function BusinessInfoTab() {
             <Grid item xs={12}><Divider><Typography variant="caption" color="text.secondary">Contato</Typography></Divider></Grid>
 
             <Grid item xs={12} md={4}>
-              <TextField label="Telefone / WhatsApp" value={form.phone} onChange={set('phone')} fullWidth />
+              <PhoneField label="Telefone / WhatsApp" value={form.phone} onChange={v => set('phone')({ target: { value: v } } as any)} fullWidth />
             </Grid>
             <Grid item xs={12} md={4}>
-              <TextField label="E-mail" value={form.email} onChange={set('email')} fullWidth type="email" />
+              <EmailField label="E-mail" value={form.email} onChange={v => set('email')({ target: { value: v } } as any)} fullWidth />
             </Grid>
             <Grid item xs={12} md={4}>
               <TextField label="Website" value={form.website} onChange={set('website')} fullWidth placeholder="www.seuatelie.com.br" />
@@ -172,6 +184,54 @@ export default function BusinessInfoTab() {
             </Grid>
             <Grid item xs={12} md={4}>
               <TextField label="Cidade / UF" value={form.city} onChange={set('city')} fullWidth placeholder="São Paulo - SP" />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Divider><Typography variant="caption" color="text.secondary">Redes sociais</Typography></Divider>
+            </Grid>
+            <Grid item xs={12}>
+              <Typography variant="caption" color="text.secondary">
+                Aparecem no orçamento que a cliente abre pelo link e nos documentos impressos.
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <PhoneField
+                label="WhatsApp comercial"
+                value={form.whatsapp}
+                onChange={v => set('whatsapp')({ target: { value: v } } as any)}
+                fullWidth
+                InputProps={{ startAdornment: <InputAdornment position="start"><WhatsApp fontSize="small" color="success" /></InputAdornment> }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Instagram"
+                value={form.instagram}
+                onChange={set('instagram')}
+                fullWidth
+                placeholder="@seuatelie"
+                InputProps={{ startAdornment: <InputAdornment position="start"><Instagram fontSize="small" sx={{ color: '#C13584' }} /></InputAdornment> }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Facebook"
+                value={form.facebook}
+                onChange={set('facebook')}
+                fullWidth
+                placeholder="facebook.com/seuatelie"
+                InputProps={{ startAdornment: <InputAdornment position="start"><Facebook fontSize="small" sx={{ color: '#1877F2' }} /></InputAdornment> }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="TikTok"
+                value={form.tiktok}
+                onChange={set('tiktok')}
+                fullWidth
+                placeholder="@seuatelie"
+                InputProps={{ startAdornment: <InputAdornment position="start"><MusicNote fontSize="small" /></InputAdornment> }}
+              />
             </Grid>
 
             <Grid item xs={12}><Divider><Typography variant="caption" color="text.secondary">Orçamentos e documentos</Typography></Divider></Grid>
