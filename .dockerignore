@@ -7,7 +7,10 @@ build
 .gitignore
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
+**/.dockerignore
 *.log
 **/*.log
 .dev.pid
