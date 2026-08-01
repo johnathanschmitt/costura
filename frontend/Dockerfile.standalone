@@ -1,11 +1,14 @@
+# syntax=docker/dockerfile:1
 # Build isolado: contexto = ./frontend (para testar sem o monorepo)
 #   docker build -f frontend/Dockerfile.standalone -t costura-frontend ./frontend
 # Usa `npm install` porque o package-lock.json fica na raiz do monorepo,
 # fora deste contexto — para build determinístico use frontend/Dockerfile.
 FROM node:20-alpine AS builder
 WORKDIR /app
+RUN npm install -g npm@11.6.2
 COPY package.json ./
-RUN npm install --include=dev \
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm install --include=dev --no-audit --no-fund \
  && test -x node_modules/.bin/tsc && test -x node_modules/.bin/vite
 COPY . .
 RUN npm run build
