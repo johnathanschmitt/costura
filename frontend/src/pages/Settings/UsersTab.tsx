@@ -56,6 +56,7 @@ export default function UsersTab() {
             <TableCell>Usuário</TableCell>
             <TableCell>E-mail</TableCell>
             <TableCell>Perfil</TableCell>
+            <TableCell>Sócia</TableCell>
             <TableCell>Status</TableCell>
             <TableCell>Criado em</TableCell>
             <TableCell align="right">Ações</TableCell>
@@ -82,6 +83,11 @@ export default function UsersTab() {
                 </TableCell>
                 <TableCell>
                   <Chip label={u.role?.name} size="small" variant="outlined" color="primary" />
+                </TableCell>
+                <TableCell>
+                  {u.isPartner
+                    ? <Chip label="Sócia" size="small" color="secondary" />
+                    : <Typography variant="caption" color="text.disabled">—</Typography>}
                 </TableCell>
                 <TableCell>
                   <Chip

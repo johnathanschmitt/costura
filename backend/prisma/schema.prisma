@@ -63,6 +63,9 @@ model User {
   quoteSends          QuoteSend[]
   /// Horas de produção que esta costureira dá conta por dia.
   dailyCapacityHours  Decimal   @default(8) @db.Decimal(4, 2)
+  /// Sócia do ateliê: participa da divisão do resultado no fim do mês.
+  isPartner           Boolean   @default(false)
+  distributionShares  DistributionShare[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   deletedAt    DateTime?
@@ -650,6 +653,43 @@ enum PayableStatus {
   PAID
   OVERDUE
   CANCELLED
+}
+
+/// Divisão do resultado de um mês entre as sócias e o ateliê.
+model MonthlyDistribution {
+  id            String   @id @default(cuid())
+  /// Mês no formato AAAA-MM.
+  month         String   @unique
+  /// Resultado apurado no momento do fechamento — congelado aqui para que
+  /// lançamentos posteriores não mudem uma divisão já acertada.
+  result        Decimal  @db.Decimal(10, 2)
+  /// Quantidade de partes: uma por sócia mais a do ateliê.
+  parts         Int
+  valuePerPart  Decimal  @db.Decimal(10, 2)
+  /// Parte que fica no ateliê para as despesas.
+  atelierShare  Decimal  @db.Decimal(10, 2)
+  notes         String?
+  closedAt      DateTime @default(now())
+  shares        DistributionShare[]
+
+  @@map("monthly_distributions")
+}
+
+model DistributionShare {
+  id             String              @id @default(cuid())
+  distributionId String
+  distribution   MonthlyDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                @relation(fields: [userId], references: [id])
+  /// Nome no momento do fechamento, para o histórico não mudar depois.
+  name           String
+  amount         Decimal             @db.Decimal(10, 2)
+  /// Produção da sócia no mês, para leitura junto do valor.
+  deliveredCount Int                 @default(0)
+  deliveredValue Decimal             @default(0) @db.Decimal(10, 2)
+
+  @@unique([distributionId, userId])
+  @@map("distribution_shares")
 }
 
 enum Recurrence {

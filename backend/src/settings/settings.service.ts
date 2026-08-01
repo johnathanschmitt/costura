@@ -14,7 +14,7 @@ export class SettingsService {
       where: { deletedAt: null },
       select: {
         id: true, name: true, email: true, phone: true,
-        active: true, avatarUrl: true, createdAt: true,
+        active: true, isPartner: true, avatarUrl: true, createdAt: true,
         role: { select: { id: true, name: true } },
       },
       orderBy: { name: 'asc' },
@@ -26,7 +26,7 @@ export class SettingsService {
       where: { id, deletedAt: null },
       select: {
         id: true, name: true, email: true, phone: true,
-        active: true, avatarUrl: true, createdAt: true,
+        active: true, isPartner: true, avatarUrl: true, createdAt: true,
         role: { select: { id: true, name: true } },
       },
     });
@@ -41,11 +41,11 @@ export class SettingsService {
     const passwordHash = await bcrypt.hash(data.password, 10);
     return this.prisma.user.create({
       data: { name: data.name, email: data.email, passwordHash, phone: data.phone, roleId: data.roleId },
-      select: { id: true, name: true, email: true, phone: true, active: true, role: { select: { id: true, name: true } } },
+      select: { id: true, name: true, email: true, phone: true, active: true, isPartner: true, role: { select: { id: true, name: true } } },
     });
   }
 
-  async updateUser(id: string, data: { name?: string; email?: string; phone?: string; roleId?: string; active?: boolean }) {
+  async updateUser(id: string, data: { name?: string; email?: string; phone?: string; roleId?: string; active?: boolean; isPartner?: boolean }) {
     const user = await this.prisma.user.findFirst({ where: { id, deletedAt: null } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
@@ -57,7 +57,7 @@ export class SettingsService {
     return this.prisma.user.update({
       where: { id },
       data,
-      select: { id: true, name: true, email: true, phone: true, active: true, role: { select: { id: true, name: true } } },
+      select: { id: true, name: true, email: true, phone: true, active: true, isPartner: true, role: { select: { id: true, name: true } } },
     });
   }
 

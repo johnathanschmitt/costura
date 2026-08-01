@@ -8,6 +8,7 @@ import PayablesSection from './PayablesSection';
 import CashFlowSection from './CashFlowSection';
 import DreSection from './DreSection';
 import MonthlyResultSection from './MonthlyResultSection';
+import DistributionSection from './DistributionSection';
 import { fmt } from './format';
 
 export default function FinancialPage() {
@@ -83,6 +84,7 @@ export default function FinancialPage() {
           }
         />
         <Tab label="Resultado do Mês" />
+        <Tab label="Divisão" />
         <Tab label="Fluxo de Caixa" />
         <Tab label="DRE" />
       </Tabs>
@@ -91,8 +93,9 @@ export default function FinancialPage() {
       {tab === 1 && <ReceivablesSection />}
       {tab === 2 && <PayablesSection />}
       {tab === 3 && <MonthlyResultSection />}
-      {tab === 4 && <CashFlowSection />}
-      {tab === 5 && <DreSection />}
+      {tab === 4 && <DistributionSection />}
+      {tab === 5 && <CashFlowSection />}
+      {tab === 6 && <DreSection />}
     </Box>
   );
 }

@@ -16,6 +16,7 @@ import {
   CreateCategoryDto, DreQueryDto, ListCategoriesDto, UpdateCategoryDto,
 } from './dto/categories.dto';
 import { MonthlyResultQueryDto } from './dto/monthly.dto';
+import { CloseDistributionDto, DistributionQueryDto } from './dto/distribution.dto';
 
 /** Toda aritmética de dinheiro usa Decimal — `Number` arredonda centavos. */
 const D = (v: Prisma.Decimal.Value) => new Prisma.Decimal(v);
@@ -1325,6 +1326,153 @@ export class FinancialService {
       history,
       business,
     };
+  }
+
+  // ── Divisão entre as sócias ───────────────────────────────────────────────
+
+  /**
+   * O resultado do mês é dividido em partes iguais: uma para cada sócia e uma
+   * que fica no ateliê para as despesas. Com três sócias são quatro partes.
+   *
+   * A sobra dos centavos (quando a divisão não fecha exata) fica com o ateliê,
+   * para que a soma das partes bata exatamente com o resultado.
+   */
+  async getDistribution(query: DistributionQueryDto) {
+    const { start, end, key } = this.monthBounds(query.month);
+    const realized = await this.realizedIn(start, end);
+    const result = realized.result;
+
+    const partners = await this.prisma.user.findMany({
+      where: { isPartner: true, deletedAt: null },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
+    // Produção de cada sócia no mês, para o relatório detalhado.
+    const delivered = await this.prisma.workOrder.findMany({
+      where: { deletedAt: null, status: 'DELIVERED', deliveredAt: { gte: start, lte: end } },
+      select: {
+        id: true, number: true, total: true, discount: true, deliveredAt: true, assignedToId: true,
+        customer: { select: { name: true } },
+        garment: { select: { name: true } },
+      },
+      orderBy: { deliveredAt: 'asc' },
+    });
+
+    const parts = partners.length + 1;
+    const perPart = result.gt(0)
+      ? result.dividedBy(parts).toDecimalPlaces(2, Prisma.Decimal.ROUND_DOWN)
+      : ZERO;
+
+    const shares = partners.map(p => {
+      const items = delivered.filter(w => w.assignedToId === p.id);
+      return {
+        userId: p.id,
+        name: p.name,
+        amount: perPart,
+        deliveredCount: items.length,
+        deliveredValue: items.reduce((s, w) => s.plus(D(w.total).minus(w.discount)), ZERO),
+        items: items.map(w => ({
+          id: w.id,
+          number: w.number,
+          customer: w.customer?.name,
+          garment: w.garment?.name ?? null,
+          deliveredAt: w.deliveredAt,
+          value: D(w.total).minus(w.discount),
+        })),
+      };
+    });
+
+    // O ateliê fica com a parte dele mais o arredondamento.
+    const distributed = perPart.times(partners.length);
+    const atelierShare = result.gt(0) ? result.minus(distributed) : ZERO;
+
+    const unassigned = delivered.filter(w => !w.assignedToId);
+    const closed = await this.prisma.monthlyDistribution.findUnique({
+      where: { month: key },
+      include: { shares: { orderBy: { name: 'asc' } } },
+    });
+    const business = await this.prisma.businessInfo.findFirst();
+
+    return {
+      month: key,
+      period: { start, end },
+      income: realized.totalIncome,
+      expense: realized.totalExpense,
+      result,
+      parts,
+      valuePerPart: perPart,
+      atelierShare,
+      shares,
+      unassigned: {
+        count: unassigned.length,
+        value: unassigned.reduce((s, w) => s.plus(D(w.total).minus(w.discount)), ZERO),
+        items: unassigned.map(w => ({
+          id: w.id, number: w.number, customer: w.customer?.name,
+          deliveredAt: w.deliveredAt, value: D(w.total).minus(w.discount),
+        })),
+      },
+      closed,
+      business,
+    };
+  }
+
+  /** Congela a divisão do mês, para que lançamentos posteriores não a alterem. */
+  async closeDistribution(dto: CloseDistributionDto) {
+    const existing = await this.prisma.monthlyDistribution.findUnique({ where: { month: dto.month } });
+    if (existing) {
+      throw new BadRequestException(
+        `A divisão de ${dto.month} já foi fechada. Reabra antes de fechar de novo.`,
+      );
+    }
+
+    const d = await this.getDistribution({ month: dto.month });
+    if (d.result.lte(0)) {
+      throw new BadRequestException(
+        'O mês não teve resultado positivo — não há o que dividir.',
+      );
+    }
+    if (d.shares.length === 0) {
+      throw new BadRequestException(
+        'Nenhuma sócia cadastrada. Marque as sócias em Configurações → Usuários.',
+      );
+    }
+
+    return this.prisma.monthlyDistribution.create({
+      data: {
+        month: d.month,
+        result: d.result,
+        parts: d.parts,
+        valuePerPart: d.valuePerPart,
+        atelierShare: d.atelierShare,
+        notes: dto.notes ?? null,
+        shares: {
+          create: d.shares.map(s => ({
+            userId: s.userId,
+            name: s.name,
+            amount: s.amount,
+            deliveredCount: s.deliveredCount,
+            deliveredValue: s.deliveredValue,
+          })),
+        },
+      },
+      include: { shares: true },
+    });
+  }
+
+  async reopenDistribution(month: string) {
+    const existing = await this.prisma.monthlyDistribution.findUnique({ where: { month } });
+    if (!existing) throw new NotFoundException('Nenhuma divisão fechada neste mês');
+    await this.prisma.monthlyDistribution.delete({ where: { month } });
+    return { reopened: true, month };
+  }
+
+  listDistributions() {
+    return this.prisma.monthlyDistribution.findMany({
+      orderBy: { month: 'desc' },
+      take: 24,
+      include: { shares: { orderBy: { name: 'asc' } } },
+    });
   }
 
   /** Contadores globais de vencidos — alimentam os alertas do módulo. */

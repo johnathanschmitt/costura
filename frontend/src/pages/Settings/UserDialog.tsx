@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Button, TextField, MenuItem, Switch, FormControlLabel,
+  Button, TextField, MenuItem, Switch, FormControlLabel, Typography,
   Grid, InputAdornment, IconButton, Alert, CircularProgress,
 } from '@mui/material';
 import { PhoneField, EmailField } from '../../components/common/fields/MaskedFields';
@@ -15,7 +15,7 @@ interface Props {
   existing?: any;
 }
 
-const EMPTY = { name: '', email: '', password: '', phone: '', roleId: '', active: true };
+const EMPTY = { name: '', email: '', password: '', phone: '', roleId: '', active: true, isPartner: false };
 
 export default function UserDialog({ open, onClose, existing }: Props) {
   const qc = useQueryClient();
@@ -41,6 +41,7 @@ export default function UserDialog({ open, onClose, existing }: Props) {
           phone: existing.phone ?? '',
           roleId: existing.role?.id ?? '',
           active: existing.active ?? true,
+          isPartner: existing.isPartner ?? false,
         });
       } else {
         setForm(EMPTY);
@@ -60,6 +61,7 @@ export default function UserDialog({ open, onClose, existing }: Props) {
           phone: form.phone || undefined,
           roleId: form.roleId,
           active: form.active,
+          isPartner: form.isPartner,
         });
       }
       return api.post('/settings/users', {
@@ -164,6 +166,22 @@ export default function UserDialog({ open, onClose, existing }: Props) {
               />
             </Grid>
           )}
+          <Grid item xs={12}>
+            {/* Sócias participam da divisão do resultado no fim do mês. */}
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={form.isPartner}
+                  onChange={e => setForm(f => ({ ...f, isPartner: e.target.checked }))}
+                  color="secondary"
+                />
+              }
+              label="É sócia do ateliê"
+            />
+            <Typography variant="caption" color="text.secondary" display="block">
+              Sócias entram na divisão do resultado mensal, em Financeiro → Divisão.
+            </Typography>
+          </Grid>
         </Grid>
       </DialogContent>
       <DialogActions>

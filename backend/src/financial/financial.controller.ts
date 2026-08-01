@@ -17,6 +17,7 @@ import {
   CreateCategoryDto, DreQueryDto, ListCategoriesDto, UpdateCategoryDto,
 } from './dto/categories.dto';
 import { MonthlyResultQueryDto } from './dto/monthly.dto';
+import { CloseDistributionDto, DistributionQueryDto } from './dto/distribution.dto';
 
 @ApiTags('financial')
 @ApiBearerAuth()
@@ -206,6 +207,30 @@ export class FinancialController {
   @Get('monthly-result')
   getMonthlyResult(@Query() query: MonthlyResultQueryDto) {
     return this.service.getMonthlyResult(query);
+  }
+
+  @ApiOperation({ summary: 'Divisão do resultado entre as sócias e o ateliê' })
+  @Get('distribution')
+  getDistribution(@Query() query: DistributionQueryDto) {
+    return this.service.getDistribution(query);
+  }
+
+  @ApiOperation({ summary: 'Divisões já fechadas' })
+  @Get('distribution/history')
+  listDistributions() {
+    return this.service.listDistributions();
+  }
+
+  @ApiOperation({ summary: 'Fechar a divisão do mês' })
+  @Post('distribution/close')
+  closeDistribution(@Body() dto: CloseDistributionDto) {
+    return this.service.closeDistribution(dto);
+  }
+
+  @ApiOperation({ summary: 'Reabrir a divisão de um mês' })
+  @Delete('distribution/:month')
+  reopenDistribution(@Param('month') month: string) {
+    return this.service.reopenDistribution(month);
   }
 
   @ApiOperation({ summary: 'DRE — resultado por categoria no período' })
