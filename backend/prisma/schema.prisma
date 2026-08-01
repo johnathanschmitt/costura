@@ -1,5 +1,9 @@
 generator client {
   provider = "prisma-client-js"
+  // "native" = host; "debian-openssl-3.0.x" = contêiner (node:20-bookworm).
+  // O contêiner monta o node_modules do host, então o engine da plataforma dele
+  // precisa existir mesmo quando o host detecta outra versão de OpenSSL.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {

@@ -116,6 +116,12 @@ if [ "$MODE" = "prod" ]; then
   done
 
   if [ "$NEED_INSTALL" = true ]; then
+    # Restos de instalação interrompida (.pacote-XXXX) fazem o npm morrer com
+    # ENOTEMPTY; nesse caso o node_modules precisa ser refeito do zero.
+    if ls node_modules/.*-* >/dev/null 2>&1; then
+      warn "node_modules tem restos de uma instalação interrompida — refazendo do zero."
+      rm -rf node_modules
+    fi
     log "Instalando dependências de build (pode demorar na primeira vez)..."
     NODE_ENV=development npm ci --include=dev || err "npm ci falhou — veja o erro acima."
     for BIN in nest tsc vite; do
@@ -214,8 +220,16 @@ for i in $(seq 1 45); do
 done
 
 # 3. Instala/atualiza dependências
+# Uma instalação interrompida deixa diretórios temporários (.pacote-XXXX) que
+# fazem o npm seguinte morrer com ENOTEMPTY. Nesse caso não dá para instalar
+# por cima: o node_modules precisa ser refeito.
+if ls node_modules/.*-* >/dev/null 2>&1; then
+  warn "node_modules tem restos de uma instalação interrompida — refazendo do zero."
+  rm -rf node_modules
+fi
+
 log "Instalando/atualizando dependências..."
-npm install
+NODE_ENV=development npm install --include=dev || err "npm install falhou — veja o erro acima."
 ok "Dependências atualizadas"
 
 # 4. Gera cliente Prisma

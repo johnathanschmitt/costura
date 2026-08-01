@@ -74,10 +74,12 @@ services:
       - tools
 
   # Sem build: roda os artefatos compilados no host (npm run build), como no dev.
-  # node:20-bullseye = Debian 11 + OpenSSL 1.1, mesma plataforma dos engines do
-  # Prisma gerados no host — assim o node_modules do host serve aqui sem recompilar.
+  # A imagem precisa ter a MESMA versão de OpenSSL do host, porque os engines do
+  # Prisma (nativos, montados junto com o node_modules) são por plataforma.
+  # bookworm = OpenSSL 3, que é o caso do servidor de produção. Em host que só
+  # tenha OpenSSL 1.1, defina BACKEND_IMAGE=node:20-bullseye no .env.
   backend:
-    image: node:20-bullseye
+    image: ${BACKEND_IMAGE:-node:20-bookworm}
     container_name: atelie_backend
     working_dir: /app/backend
     command: sh -c "npx prisma migrate deploy && node dist/src/main"
