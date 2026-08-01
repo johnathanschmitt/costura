@@ -137,12 +137,15 @@ if [ "$MODE" = "prod" ]; then
     done
   fi
 
-  log "Compilando backend e frontend no host..."
-  npm run build || err "Build falhou — veja o erro acima."
-
-  # O container usa o node_modules do host, incluindo os engines do Prisma
+  # Precisa vir ANTES do build: o backend importa tipos de @prisma/client
+  # (Prisma.WorkOrderUpdateInput, Prisma.Decimal, ...) que só existem depois de
+  # gerar o client. Sem isto o tsc falha com dezenas de TS2694 num node_modules
+  # recém-instalado. Também é o que produz os engines nativos que o contêiner monta.
   log "Gerando Prisma Client..."
   npm run prisma:generate --workspace=backend >/dev/null || err "prisma generate falhou."
+
+  log "Compilando backend e frontend no host..."
+  npm run build || err "Build falhou — veja o erro acima."
 
   [ -f frontend/dist/index.html ] || err "frontend/dist/index.html não foi gerado — build incompleto."
   [ -f backend/dist/src/main.js ] || err "backend/dist/src/main.js não foi gerado — build incompleto."
