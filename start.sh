@@ -66,6 +66,36 @@ sep
 # PRODUÇÃO
 # ═════════════════════════════════════════════════════════════════════════════
 if [ "$MODE" = "prod" ]; then
+  # Sem .env o docker-compose cai nos valores padrão embutidos — inclusive um
+  # JWT_SECRET que está publicado no repositório. O sistema sobe e parece
+  # normal, mas qualquer pessoa consegue forjar um login de administrador.
+  if [ ! -f .env ]; then
+    err "Não há arquivo .env — subir assim usaria as senhas padrão do repositório.
+     Gere um com segredos aleatórios:
+       ./setup-env.sh"
+  fi
+
+  INSECURE=""
+  case "${JWT_SECRET:-}" in ''|*change_me*) INSECURE="$INSECURE JWT_SECRET" ;; esac
+  case "${JWT_REFRESH_SECRET:-}" in ''|*change_me*) INSECURE="$INSECURE JWT_REFRESH_SECRET" ;; esac
+  [ "${POSTGRES_PASSWORD:-}" = "atelie123" ] && INSECURE="$INSECURE POSTGRES_PASSWORD"
+  [ "${REDIS_PASSWORD:-}" = "redis123" ] && INSECURE="$INSECURE REDIS_PASSWORD"
+  [ "${MINIO_ROOT_PASSWORD:-}" = "minio123456" ] && INSECURE="$INSECURE MINIO_ROOT_PASSWORD"
+
+  if [ -n "$INSECURE" ]; then
+    err "Estes valores ainda são os padrão do repositório:$INSECURE
+     Qualquer pessoa que conheça o projeto consegue entrar no sistema.
+     Gere segredos novos com:
+       ./setup-env.sh"
+  fi
+
+  case "${FRONTEND_URL:-}" in
+    *localhost*|*127.0.0.1*|'')
+      warn "FRONTEND_URL está como '${FRONTEND_URL:-vazio}'."
+      warn "O link do orçamento enviado por WhatsApp não vai abrir no celular da cliente."
+      ;;
+  esac
+
   PROFILES=""
   [ "$WITH_TOOLS" = true ] && PROFILES="--profile tools"
 
