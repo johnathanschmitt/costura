@@ -170,7 +170,7 @@ if [ "$MODE" = "prod" ]; then
   [ -f backend/dist/src/main.js ] || err "backend/dist/src/main.js não foi gerado — build incompleto."
 
   log "Subindo os containers..."
-  docker compose $PROFILES up -d
+  docker compose $PROFILES up -d || err "docker compose up falhou — veja o erro acima."
 
   log "Aguardando backend ficar saudável..."
   for i in $(seq 1 60); do
@@ -183,6 +183,30 @@ if [ "$MODE" = "prod" ]; then
     [ $i -eq 60 ] && warn "Timeout aguardando — verifique: docker compose logs backend"
     sleep 2
   done
+
+  # As migrations rodam no CMD do container do backend. Se ele não subiu, o
+  # banco fica sem tabela nenhuma e toda requisição responde 500 — vale checar
+  # em vez de anunciar "sistema em produção" em cima de um banco vazio.
+  TABELAS=$(docker exec atelie_postgres psql -U "${POSTGRES_USER:-atelie}" -d "${POSTGRES_DB:-atelie}" -tAc \
+    "select count(*) from information_schema.tables where table_schema='public';" 2>/dev/null || echo 0)
+
+  if [ "${TABELAS:-0}" -lt 2 ]; then
+    err "O banco está sem tabelas — as migrations não rodaram.
+     O backend aplica as migrations ao subir, então ele provavelmente falhou:
+       docker compose logs backend"
+  fi
+
+  # Banco vazio não tem usuário nenhum e ninguém consegue entrar. O bootstrap
+  # cria só permissões, papéis e um admin — sem os dados de demonstração do seed.
+  USUARIOS=$(docker exec atelie_postgres psql -U "${POSTGRES_USER:-atelie}" -d "${POSTGRES_DB:-atelie}" -tAc \
+    "select count(*) from users;" 2>/dev/null || echo 0)
+
+  if [ "${USUARIOS:-0}" -eq 0 ]; then
+    log "Banco sem usuários — criando administrador inicial..."
+    docker compose exec -T backend node dist/prisma/bootstrap.js \
+      || warn "Bootstrap falhou — crie o admin manualmente:
+     docker compose exec backend node dist/prisma/bootstrap.js"
+  fi
 
   # Respeita HTTP_PORT do .env — em máquina com a 80 ocupada a URL muda
   BASE="http://localhost"
