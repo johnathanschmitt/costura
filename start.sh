@@ -137,6 +137,20 @@ if [ "$MODE" = "prod" ]; then
     done
   fi
 
+  # Quando um bind mount não existe no host, o Docker cria o diretório como
+  # root. Se um `up` rodar antes do build (ou falhar antes dele), frontend/dist
+  # nasce root e o vite morre depois com EACCES ao gravar dentro. Criar aqui,
+  # antes de qualquer `docker compose up`, evita isso.
+  for D in frontend/dist backend/dist; do
+    if [ -d "$D" ] && [ ! -w "$D" ]; then
+      warn "$D pertence a outro usuário (criado pelo Docker) — removendo."
+      rmdir "$D" 2>/dev/null || err "Não foi possível remover $D — ele não está vazio.
+     Remova manualmente e rode de novo:
+       sudo rm -rf $D"
+    fi
+    mkdir -p "$D" || err "Não foi possível criar $D."
+  done
+
   # Precisa vir ANTES do build: o backend importa tipos de @prisma/client
   # (Prisma.WorkOrderUpdateInput, Prisma.Decimal, ...) que só existem depois de
   # gerar o client. Sem isto o tsc falha com dezenas de TS2694 num node_modules
