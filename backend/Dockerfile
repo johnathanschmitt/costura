@@ -7,7 +7,9 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/
 COPY backend/package.json ./backend/
-RUN npm ci --workspace=backend
+# --include=dev: nest CLI e prisma são devDependencies e o build falha sem elas
+RUN npm ci --workspace=backend --include=dev \
+ && test -x node_modules/.bin/nest && test -x node_modules/.bin/prisma
 
 FROM base AS builder
 COPY --from=deps /app ./

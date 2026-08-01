@@ -6,7 +6,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/
 COPY backend/package.json ./backend/
-RUN npm ci --workspace=frontend
+# --include=dev: tsc/vite são devDependencies e o build falha sem elas
+# mesmo que NODE_ENV/.npmrc peçam produção
+RUN npm ci --workspace=frontend --include=dev \
+ && test -x node_modules/.bin/tsc && test -x node_modules/.bin/vite
 
 COPY frontend ./frontend
 RUN npm run build --workspace=frontend

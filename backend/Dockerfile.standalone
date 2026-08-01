@@ -8,7 +8,8 @@ RUN apk add --no-cache openssl
 
 FROM base AS deps
 COPY package.json ./
-RUN npm install
+RUN npm install --include=dev \
+ && test -x node_modules/.bin/nest && test -x node_modules/.bin/prisma
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
