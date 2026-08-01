@@ -35,8 +35,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # ── Pré-checagens ─────────────────────────────────────────────────────────────
-command -v docker >/dev/null 2>&1 || err "Docker não encontrado"
-docker info >/dev/null 2>&1      || err "Docker daemon não está rodando"
+command -v docker >/dev/null 2>&1 || err "Docker não encontrado.
+     Instale com:  curl -fsSL https://get.docker.com | sudo sh"
+
+# "daemon não responde" tem causas diferentes e soluções diferentes: distinguir
+# aqui evita a caça ao erro no servidor.
+if ! DOCKER_ERR="$(docker info 2>&1 >/dev/null)"; then
+  if echo "$DOCKER_ERR" | grep -qi "permission denied"; then
+    err "Sem permissão para falar com o Docker.
+     Seu usuário ($USER) não está no grupo 'docker'. Resolva com:
+       sudo usermod -aG docker $USER
+     e DEPOIS saia e entre de novo na sessão (ou rode: newgrp docker)."
+  elif systemctl list-unit-files docker.service >/dev/null 2>&1; then
+    err "O serviço do Docker está parado. Inicie com:
+       sudo systemctl start docker
+       sudo systemctl enable docker   # para subir sozinho no boot"
+  else
+    err "Não foi possível falar com o Docker:
+       $DOCKER_ERR"
+  fi
+fi
 
 [ -f .env ] && export $(grep -v '^#' .env | grep -v '^$' | xargs) 2>/dev/null || true
 
