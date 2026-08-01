@@ -114,11 +114,15 @@ if [ "$MODE" = "prod" ]; then
     sleep 2
   done
 
+  # Respeita HTTP_PORT do .env — em máquina com a 80 ocupada a URL muda
+  BASE="http://localhost"
+  [ "${HTTP_PORT:-80}" != "80" ] && BASE="http://localhost:${HTTP_PORT}"
+
   sep
   ok "Sistema em produção"
-  ok "App:     http://localhost"
-  ok "API:     http://localhost/api"
-  ok "Swagger: http://localhost/docs"
+  ok "App:     $BASE"
+  ok "API:     $BASE/api"
+  ok "Swagger: $BASE/docs"
   [ "$WITH_TOOLS" = true ] && ok "PgAdmin: http://localhost:5050"
   sep
   echo -e "  Logs: ${Y}docker compose logs -f${N}"
