@@ -106,9 +106,21 @@ if [ "$MODE" = "prod" ]; then
      Instale as dependências do sistema com:
        ./install-deps.sh"
 
-  if [ ! -d node_modules ]; then
-    log "Instalando dependências (primeira vez, pode demorar)..."
-    npm ci || err "npm ci falhou — veja o erro acima."
+  # Não basta o node_modules existir: o .env exportado acima traz
+  # NODE_ENV=production, e com ele o npm pula as devDependencies — que é onde
+  # moram nest, tsc e vite. Um node_modules assim quebra o build com
+  # "nest: not found". Por isso conferimos os binários, não a pasta.
+  NEED_INSTALL=false
+  for BIN in nest tsc vite; do
+    [ -x "node_modules/.bin/$BIN" ] || NEED_INSTALL=true
+  done
+
+  if [ "$NEED_INSTALL" = true ]; then
+    log "Instalando dependências de build (pode demorar na primeira vez)..."
+    NODE_ENV=development npm ci --include=dev || err "npm ci falhou — veja o erro acima."
+    for BIN in nest tsc vite; do
+      [ -x "node_modules/.bin/$BIN" ] || err "$BIN continua ausente após o npm ci — build impossível."
+    done
   fi
 
   log "Compilando backend e frontend no host..."
