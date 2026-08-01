@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Card, CardContent, Typography, Grid, TextField, Button,
-  Table, TableBody, TableCell, TableHead, TableRow, Box, Collapse,
+  Table, TableBody, TableCell, TableHead, TableRow, Box, Collapse, CircularProgress,
 } from '@mui/material';
 import { Add, ExpandMore, ExpandLess } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -124,7 +124,13 @@ export default function MeasurementsCard({ customerId }: { customerId: string })
               </Grid>
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button variant="contained" size="small" onClick={handleSave} loading={saveMutation.isPending}>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={handleSave}
+                    disabled={saveMutation.isPending}
+                    startIcon={saveMutation.isPending ? <CircularProgress size={16} color="inherit" /> : undefined}
+                  >
                     Salvar Medidas
                   </Button>
                   <Button size="small" onClick={() => setShowForm(false)}>Cancelar</Button>

@@ -53,9 +53,9 @@ export default function UserDialog({ open, onClose, existing }: Props) {
     setForm(f => ({ ...f, [field]: e.target.value }));
 
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async (): Promise<void> => {
       if (isEdit) {
-        return api.patch(`/settings/users/${existing.id}`, {
+        await api.patch(`/settings/users/${existing.id}`, {
           name: form.name,
           email: form.email,
           phone: form.phone || undefined,
@@ -63,8 +63,9 @@ export default function UserDialog({ open, onClose, existing }: Props) {
           active: form.active,
           isPartner: form.isPartner,
         });
+        return;
       }
-      return api.post('/settings/users', {
+      await api.post('/settings/users', {
         name: form.name,
         email: form.email,
         password: form.password,

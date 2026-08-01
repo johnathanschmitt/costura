@@ -1,4 +1,4 @@
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography } from '@mui/material';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, CircularProgress } from '@mui/material';
 
 interface Props {
   open: boolean;
@@ -23,7 +23,13 @@ export default function ConfirmDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={loading}>Cancelar</Button>
-        <Button variant="contained" color={confirmColor} onClick={onConfirm} loading={loading}>
+        <Button
+          variant="contained"
+          color={confirmColor}
+          onClick={onConfirm}
+          disabled={loading}
+          startIcon={loading ? <CircularProgress size={16} color="inherit" /> : undefined}
+        >
           {confirmLabel}
         </Button>
       </DialogActions>
