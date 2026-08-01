@@ -9,7 +9,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-atelie}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atelie123}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Volume próprio de produção: começa vazio (só as migrations, sem seed)
+      - postgres_prod_data:/var/lib/postgresql/data
     ports:
       - '5432:5432'
     healthcheck:
@@ -71,13 +72,21 @@ services:
     profiles:
       - tools
 
+  # Sem build: roda os artefatos compilados no host (npm run build), como no dev.
+  # node:20-slim (Debian/glibc) para o node_modules do host servir aqui também.
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      target: production
+    image: node:20-slim
     container_name: atelie_backend
+    working_dir: /app/backend
+    command: sh -c "npx prisma migrate deploy && node dist/src/main"
+    volumes:
+      - ./package.json:/app/package.json:ro
+      - ./node_modules:/app/node_modules:ro
+      - ./backend/dist:/app/backend/dist:ro
+      - ./backend/prisma:/app/backend/prisma:ro
+      - ./backend/package.json:/app/backend/package.json:ro
     environment:
+      PRISMA_QUERY_ENGINE_LIBRARY: /app/node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node
       DATABASE_URL: postgresql://${POSTGRES_USER:-atelie}:${POSTGRES_PASSWORD:-atelie123}@postgres:5432/${POSTGRES_DB:-atelie}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
       MINIO_ENDPOINT: minio
@@ -95,11 +104,13 @@ services:
     networks:
       - atelie_net
 
+  # Sem build: nginx serve o frontend/dist compilado no host
   frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
+    image: nginx:alpine
     container_name: atelie_frontend
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - atelie_net
 
@@ -119,7 +130,7 @@ services:
       - atelie_net
 
 volumes:
-  postgres_data:
+  postgres_prod_data:
   redis_data:
   minio_data:
 
