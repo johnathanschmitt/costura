@@ -9,7 +9,7 @@ import {
   Inventory2, AccountBalance, Menu as MenuIcon,
   Logout, ChevronLeft, ContentCut,
   ExpandLess, ExpandMore, MiscellaneousServices, Category, BarChart, Settings,
-  CheckroomOutlined,
+  CheckroomOutlined, Storefront,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/auth.store';
@@ -20,6 +20,9 @@ const DRAWER_WIDTH = 240;
 
 const navItems = [
   { label: 'Dashboard', icon: <Dashboard />, path: '/dashboard' },
+  // Primeiro da lista porque é o atalho de quem está com a cliente na frente:
+  // buscar, receber e entregar sem passar por três módulos.
+  { label: 'Balcão', icon: <Storefront />, path: '/balcao' },
   { label: 'Clientes', icon: <People />, path: '/customers' },
   { label: 'Orçamentos', icon: <RequestQuote />, path: '/quotes' },
   { label: 'Ordens de Serviço', icon: <Assignment />, path: '/work-orders' },

@@ -260,6 +260,16 @@ export class ListReceivablesDto extends MonthlyListQueryDto {
   @IsString()
   customerId?: string;
 
+  // O filtro por categoria existia só do lado das despesas; as duas telas
+  // nasceram simétricas e não há razão para a receita não poder ser recortada
+  // do mesmo jeito.
+  @ApiPropertyOptional()
+  @IsOptional()
+  @EmptyToUndefined()
+  @IsString()
+  @MaxLength(60)
+  category?: string;
+
   @ApiPropertyOptional({ description: 'Vencimento a partir de' })
   @IsOptional()
   @EmptyToUndefined()

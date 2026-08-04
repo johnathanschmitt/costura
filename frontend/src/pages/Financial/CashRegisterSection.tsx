@@ -4,12 +4,12 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Table, TableBody, TableCell, TableHead, TableRow, TableContainer,
   Paper, Divider, Alert, Tooltip, FormControl, InputLabel, Select, MenuItem,
-  Collapse, IconButton,
+  Collapse, Stepper, Step, StepLabel, Stack,
 } from '@mui/material';
 import MoneyField from '../../components/common/fields/MoneyField';
 import {
   Add, LockOpen, Lock, ArrowUpward, ArrowDownward, InfoOutlined,
-  CallMade, CallReceived, Print, Undo,
+  CallMade, CallReceived, Undo,
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -18,6 +18,7 @@ import api from '../../services/api';
 import { useToast } from '../../store/toast.store';
 import CategorySelect from './CategorySelect';
 import ReversePaymentDialog from './ReversePaymentDialog';
+import { useCompact } from './useCompact';
 import { apiError, fmt, toNumber } from './format';
 
 /** Destinos padronizados — precisam bater com CASH_COUNTERPARTS do backend. */
@@ -66,7 +67,7 @@ function OpenRegisterDialog({ open, onClose, onConfirm, loading, error }: any) {
           onClick={() => onConfirm(balance ?? 0, notes)}
           disabled={loading}
         >
-          Abrir Caixa
+          Abrir o caixa com {fmt(balance ?? 0)}
         </Button>
       </DialogActions>
     </Dialog>
@@ -90,7 +91,7 @@ function AddTransactionDialog({ open, onClose, onConfirm, loading, error }: any)
         {error && <Alert severity="error">{error}</Alert>}
         <Alert severity="info" icon={<InfoOutlined />}>
           O caixa registra apenas dinheiro em espécie. Recebimentos em Pix ou cartão são lançados
-          em Contas a Receber.
+          em Contas do mês.
         </Alert>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
@@ -123,7 +124,9 @@ function AddTransactionDialog({ open, onClose, onConfirm, loading, error }: any)
           onClick={() => onConfirm({ type, description, amount, category: category || undefined })}
           disabled={!description || !amount || loading}
         >
-          Lançar
+          {amount
+            ? `Lançar ${fmt(amount)} ${type === 'INCOME' ? 'na' : 'da'} gaveta`
+            : 'Lançar na gaveta'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -231,7 +234,11 @@ function TransferDialog({ open, kind, onClose, onConfirm, loading, error, balanc
           onClick={() => onConfirm({ kind, amount: value, reason, counterpart, accountId: accountId || undefined })}
           disabled={!valid || loading}
         >
-          Registrar
+          {valid
+            ? isWithdrawal
+              ? `Tirar ${fmt(value)} da gaveta`
+              : `Colocar ${fmt(value)} na gaveta`
+            : isWithdrawal ? 'Tirar da gaveta' : 'Colocar na gaveta'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -239,18 +246,24 @@ function TransferDialog({ open, kind, onClose, onConfirm, loading, error, balanc
 }
 
 /**
- * Fechamento com conferência: o sistema mostra quanto deveria haver na gaveta,
- * a usuária conta o dinheiro e informa o valor real. A diferença é o resultado
- * que justifica todo o ritual de abrir e fechar o caixa.
+ * Fechamento com conferência, em três passos: conte o dinheiro → confira a
+ * diferença → assine.
+ *
+ * Tudo isto já funcionava numa tela só, e é justamente por caber numa tela só
+ * que a contagem por cédula ficava escondida atrás de um link e a diferença
+ * aparecia no meio do formulário. Separado em passos, cada momento tem uma
+ * pergunta e uma resposta — e o fechamento é feito de pé, no fim do dia, por
+ * quem está com pressa.
  */
 function CloseRegisterDialog({ open, onClose, onConfirm, expected, loading, error, blind }: any) {
+  const [step, setStep] = useState(0);
   const [counted, setCounted] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
   const [showNotes, setShowNotes] = useState(false);
   const [notesCount, setNotesCount] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (open) { setCounted(null); setNotes(''); setNotesCount({}); setShowNotes(false); }
+    if (open) { setStep(0); setCounted(null); setNotes(''); setNotesCount({}); setShowNotes(false); }
   }, [open]);
 
   // Soma da contagem por cédula. Quando a usuária usa esse caminho, ela manda no
@@ -277,107 +290,158 @@ function CloseRegisterDialog({ open, onClose, onConfirm, expected, loading, erro
       )
     : undefined;
 
+  const STEPS = ['Conte o dinheiro', 'Confira a diferença', 'Assine'];
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Fechar Caixa</DialogTitle>
+      <DialogTitle sx={{ pb: 0 }}>Fechar o caixa</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        <Stepper activeStep={step} alternativeLabel sx={{ mb: 1 }}>
+          {STEPS.map(s => <Step key={s}><StepLabel>{s}</StepLabel></Step>)}
+        </Stepper>
+
         {error && <Alert severity="error">{error}</Alert>}
 
-        <Box sx={{ bgcolor: 'background.default', p: 1.5, borderRadius: 2 }}>
-          <Typography variant="caption" color="text.secondary">
-            Deveria haver na gaveta
-          </Typography>
-          {revealExpected ? (
-            <Typography variant="h5" fontWeight={700}>{fmt(expected)}</Typography>
-          ) : (
-            <Typography variant="h5" fontWeight={700} color="text.disabled">
-              •••••
-              <Typography component="span" variant="caption" color="text.secondary" ml={1}>
-                conte primeiro
-              </Typography>
-            </Typography>
-          )}
-        </Box>
+        {/* 1 — Conte. Na conferência às cegas o esperado nem aparece: mostrar
+            antes transforma o número da tela na resposta. */}
+        {step === 0 && (
+          <>
+            <MoneyField
+              label="Dinheiro contado"
+              value={usingBreakdown ? breakdownTotal : counted}
+              onChange={setCounted}
+              disabled={usingBreakdown}
+              helperText={
+                usingBreakdown
+                  ? 'Somado a partir da contagem por cédula'
+                  : 'Conte o dinheiro da gaveta e informe o valor real'
+              }
+              autoFocus
+              fullWidth
+            />
 
-        <MoneyField
-          label="Dinheiro contado"
-          value={usingBreakdown ? breakdownTotal : counted}
-          onChange={setCounted}
-          disabled={usingBreakdown}
-          helperText={
-            usingBreakdown
-              ? 'Somado a partir da contagem por cédula'
-              : 'Conte o dinheiro da gaveta e informe o valor real'
-          }
-          autoFocus
-          fullWidth
-        />
-
-        <Box>
-          <Button size="small" onClick={() => setShowNotes(s => !s)}>
-            {showNotes ? 'ocultar contagem por cédula' : 'contar por cédula'}
-          </Button>
-          <Collapse in={showNotes}>
-            <Grid container spacing={1} sx={{ mt: 0.5 }}>
-              {NOTES.map(note => (
-                <Grid item xs={4} key={note}>
-                  <TextField
-                    label={note >= 1 ? `R$ ${note}` : `${(note * 100).toFixed(0)} centavos`}
-                    value={notesCount[String(note)] ?? ''}
-                    onChange={e => setNotesCount(c => ({ ...c, [String(note)]: e.target.value.replace(/\D/g, '') }))}
-                    size="small"
-                    fullWidth
-                    inputProps={{ inputMode: 'numeric' }}
-                  />
+            <Box>
+              <Button size="small" onClick={() => setShowNotes(s => !s)}>
+                {showNotes ? 'ocultar contagem por cédula' : 'contar por cédula'}
+              </Button>
+              <Collapse in={showNotes}>
+                <Grid container spacing={1} sx={{ mt: 0.5 }}>
+                  {NOTES.map(note => (
+                    <Grid item xs={4} key={note}>
+                      <TextField
+                        label={note >= 1 ? `R$ ${note}` : `${(note * 100).toFixed(0)} centavos`}
+                        value={notesCount[String(note)] ?? ''}
+                        onChange={e => setNotesCount(c => ({ ...c, [String(note)]: e.target.value.replace(/\D/g, '') }))}
+                        size="small"
+                        fullWidth
+                        inputProps={{ inputMode: 'numeric' }}
+                      />
+                    </Grid>
+                  ))}
+                  <Grid item xs={12}>
+                    <Typography variant="body2" fontWeight={600}>
+                      Total contado: {fmt(breakdownTotal)}
+                    </Typography>
+                  </Grid>
                 </Grid>
-              ))}
-              <Grid item xs={12}>
-                <Typography variant="body2" fontWeight={600}>
-                  Total contado: {fmt(breakdownTotal)}
-                </Typography>
-              </Grid>
-            </Grid>
-          </Collapse>
-        </Box>
+              </Collapse>
+            </Box>
 
-        {hasCount && (
-          diverges ? (
-            <Alert severity="warning">
-              <strong>
-                {difference < 0 ? 'Falta' : 'Sobra'} {fmt(Math.abs(difference))}
-              </strong>
-              {' '}na gaveta. Explique a diferença abaixo para fechar o caixa.
-            </Alert>
-          ) : (
-            <Alert severity="success">Conferido — o valor contado bate com o esperado.</Alert>
-          )
+            {!blind && (
+              <Typography variant="caption" color="text.secondary">
+                O sistema espera {fmt(expected)} na gaveta.
+              </Typography>
+            )}
+          </>
         )}
 
-        <TextField
-          label={diverges ? 'Justificativa da diferença *' : 'Observações'}
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          fullWidth
-          multiline
-          rows={2}
-          required={diverges}
-          error={needsNotes}
-        />
+        {/* 2 — Confira. A frase que interessa, em vez de três números. */}
+        {step === 1 && (
+          <>
+            <Box sx={{ bgcolor: 'background.default', p: 2, borderRadius: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.25 }}>
+                <Typography variant="body2" color="text.secondary">O sistema esperava</Typography>
+                <Typography variant="body2">{fmt(expected)}</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.25 }}>
+                <Typography variant="body2" color="text.secondary">Você contou</Typography>
+                <Typography variant="body2">{fmt(countedValue)}</Typography>
+              </Box>
+            </Box>
+
+            {diverges ? (
+              <Alert severity="warning">
+                <strong>{difference < 0 ? 'Faltam' : 'Sobram'} {fmt(Math.abs(difference))}</strong>{' '}
+                na gaveta. Quer registrar uma justificativa?
+              </Alert>
+            ) : (
+              <Alert severity="success">Fechou certinho — o contado bate com o esperado.</Alert>
+            )}
+
+            <TextField
+              label={diverges ? 'Justificativa da diferença *' : 'Observações (opcional)'}
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder={diverges ? 'Ex.: dei troco a mais numa venda de manhã' : ''}
+              fullWidth
+              multiline
+              rows={2}
+              autoFocus={diverges}
+              required={diverges}
+              error={needsNotes}
+              helperText={needsNotes ? 'Sem a justificativa a diferença fica sem explicação no histórico' : ' '}
+            />
+
+            {revealExpected && !diverges && (
+              <Button size="small" onClick={() => setStep(0)}>contar de novo</Button>
+            )}
+          </>
+        )}
+
+        {/* 3 — Assine. A última tela repete o que vai ser gravado. */}
+        {step === 2 && (
+          <Box sx={{ py: 1 }}>
+            <Typography variant="body1" gutterBottom>
+              Vou fechar o caixa com <strong>{fmt(countedValue)}</strong> contados na gaveta.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {diverges
+                ? `Fica registrada uma ${difference < 0 ? 'falta' : 'sobra'} de ${fmt(Math.abs(difference))}, com a justificativa acima.`
+                : 'O valor bate com o esperado — nenhuma diferença a explicar.'}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" display="block" mt={2}>
+              Depois de fechar, o relatório do dia abre para impressão. O caixa fechado não aceita
+              lançamentos novos.
+            </Typography>
+          </Box>
+        )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={loading}>Cancelar</Button>
-        <Button
-          variant="contained"
-          color="error"
-          onClick={() => onConfirm({
-            countedBalance: countedValue,
-            countBreakdown: breakdownPayload,
-            notes: notes || undefined,
-          })}
-          disabled={!hasCount || needsNotes || loading}
-        >
-          Fechar Caixa
+        <Button onClick={step === 0 ? onClose : () => setStep(s => s - 1)} disabled={loading}>
+          {step === 0 ? 'Cancelar' : 'Voltar'}
         </Button>
+        {step < 2 ? (
+          <Button
+            variant="contained"
+            onClick={() => setStep(s => s + 1)}
+            disabled={step === 0 ? !hasCount : needsNotes}
+          >
+            {step === 0 ? 'Conferir' : 'Continuar'}
+          </Button>
+        ) : (
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => onConfirm({
+              countedBalance: countedValue,
+              countBreakdown: breakdownPayload,
+              notes: notes || undefined,
+            })}
+            disabled={loading}
+          >
+            Fechar o caixa com {fmt(countedValue)}
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );
@@ -387,6 +451,7 @@ export default function CashRegisterSection() {
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
+  const compact = useCompact();
   const [openDialog, setOpenDialog] = useState(false);
   const [txDialog, setTxDialog] = useState(false);
   const [closeDialog, setCloseDialog] = useState(false);
@@ -424,14 +489,19 @@ export default function CashRegisterSection() {
       refresh();
       setCloseDialog(false);
       const diff = toNumber(res.data.difference);
+      // O relatório fica a um clique, não no caminho: fechar o caixa é o fim do
+      // dia, e a maioria dos dias não precisa de papel nenhum. Quem quiser o
+      // registro pede aqui — ou depois, em "ver caixas anteriores".
       toast(
         Math.abs(diff) < 0.005
           ? 'Caixa fechado — valores conferem'
           : `Caixa fechado com ${diff < 0 ? 'falta' : 'sobra'} de ${fmt(Math.abs(diff))}`,
         Math.abs(diff) < 0.005 ? 'success' : 'warning',
+        {
+          label: 'Ver relatório',
+          onClick: () => navigate(`/financial/cash-register/${res.data.id}/report`),
+        },
       );
-      // O relatório de fechamento é o registro do que acabou de ser conferido.
-      navigate(`/financial/cash-register/${res.data.id}/report`);
     },
     onError: (e: any) => setDialogError(apiError(e, 'Erro ao fechar o caixa')),
   });
@@ -459,6 +529,11 @@ export default function CashRegisterSection() {
   const expense = toNumber(current?.expense);
   const expected = toNumber(current?.expectedBalance);
 
+  // A coluna de autoria só ganha o seu espaço quando há mais de um nome nela.
+  const showWho = new Set(
+    (transactions as any[]).map(t => t.user?.name).filter(Boolean),
+  ).size > 1;
+
   return (
     <Box>
       {!current ? (
@@ -469,48 +544,22 @@ export default function CashRegisterSection() {
             no fechamento você confere o valor contado com o esperado.
           </Typography>
           <Button variant="contained" startIcon={<LockOpen />} onClick={() => openWith(setOpenDialog)} size="large">
-            Abrir Caixa
+            Abrir o caixa
           </Button>
+          <Box mt={2}>
+            <Button size="small" onClick={() => navigate('/financial/caixas')}>
+              ver caixas anteriores
+            </Button>
+          </Box>
         </Box>
       ) : (
         <>
+          {/* Dos quatro números do topo, só um decide alguma coisa: quanto
+              deveria haver na gaveta. Abertura, entradas e saídas são o
+              detalhe de como se chegou nele. */}
           <Grid container spacing={2} mb={3}>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography variant="caption" color="text.secondary">Abertura</Typography>
-                  <Typography variant="h5" fontWeight={700}>{fmt(current.openingBalance)}</Typography>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    {dayjs(current.openedAt).format('DD/MM/YYYY HH:mm')}
-                    {current.openedBy && ` · ${current.openedBy.name}`}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography variant="caption" color="text.secondary">Entradas em dinheiro</Typography>
-                  <Typography variant="h5" fontWeight={700} color="success.main">{fmt(income)}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {transactions.filter((t: any) => t.type === 'INCOME').length} lançamentos
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography variant="caption" color="text.secondary">Saídas em dinheiro</Typography>
-                  <Typography variant="h5" fontWeight={700} color="error.main">{fmt(expense)}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {transactions.filter((t: any) => t.type === 'EXPENSE').length} lançamentos
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ bgcolor: 'primary.main', color: 'white' }}>
+            <Grid item xs={12} md={5}>
+              <Card sx={{ bgcolor: 'primary.main', color: 'white', height: '100%' }}>
                 <CardContent>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <Typography variant="caption" sx={{ opacity: 0.8 }}>Esperado na gaveta</Typography>
@@ -518,10 +567,47 @@ export default function CashRegisterSection() {
                       <InfoOutlined sx={{ fontSize: 14, opacity: 0.8 }} />
                     </Tooltip>
                   </Box>
-                  <Typography variant="h5" fontWeight={700}>{fmt(expected)}</Typography>
-                  <Chip label="Aberto" size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', mt: 0.5 }} />
+                  <Typography variant="h3" fontWeight={700}>{fmt(expected)}</Typography>
+                  <Chip label="Caixa aberto" size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', mt: 0.5 }} />
                 </CardContent>
               </Card>
+            </Grid>
+            <Grid item xs={12} md={7}>
+              <Grid container spacing={2} sx={{ height: '100%' }}>
+                <Grid item xs={12} sm={4}>
+                  <Card variant="outlined" sx={{ height: '100%' }}>
+                    <CardContent>
+                      <Typography variant="caption" color="text.secondary">Abertura</Typography>
+                      <Typography variant="h6" fontWeight={700}>{fmt(current.openingBalance)}</Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {dayjs(current.openedAt).format('DD/MM HH:mm')}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <Card variant="outlined" sx={{ height: '100%' }}>
+                    <CardContent>
+                      <Typography variant="caption" color="text.secondary">Entrou em dinheiro</Typography>
+                      <Typography variant="h6" fontWeight={700} color="success.main">{fmt(income)}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {transactions.filter((t: any) => t.type === 'INCOME').length} lançamentos
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <Card variant="outlined" sx={{ height: '100%' }}>
+                    <CardContent>
+                      <Typography variant="caption" color="text.secondary">Saiu em dinheiro</Typography>
+                      <Typography variant="h6" fontWeight={700} color="error.main">{fmt(expense)}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {transactions.filter((t: any) => t.type === 'EXPENSE').length} lançamentos
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
             </Grid>
           </Grid>
 
@@ -546,10 +632,66 @@ export default function CashRegisterSection() {
             </Button>
             <Box sx={{ flexGrow: 1 }} />
             <Button variant="outlined" color="error" startIcon={<Lock />} onClick={() => openWith(setCloseDialog)}>
-              Fechar Caixa
+              Conferir e fechar o caixa
             </Button>
           </Box>
 
+          {/* No telefone as sete colunas viram rolagem de lado; cada lançamento
+              vira um cartão, que é como ela lê de pé no balcão. */}
+          {compact ? (
+            <Stack spacing={1}>
+              {transactions.length === 0 && (
+                <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
+                  <Typography variant="body1" fontWeight={600} gutterBottom>
+                    Nenhum dinheiro entrou ou saiu da gaveta hoje.
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    As linhas aparecem aqui quando você recebe uma conta em dinheiro, lança uma
+                    venda avulsa ou faz uma sangria.
+                  </Typography>
+                </Paper>
+              )}
+              {transactions.map((t: any) => (
+                <Paper key={t.id} variant="outlined" sx={{ p: 1.5 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={600}>{t.description}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {dayjs(t.createdAt).format('HH:mm')}
+                        {t.category && ` · ${t.category}`}
+                        {showWho && t.user?.name && ` · ${t.user.name}`}
+                      </Typography>
+                    </Box>
+                    <Typography
+                      variant="body1"
+                      fontWeight={700}
+                      color={t.type === 'INCOME' ? 'success.main' : 'error.main'}
+                      sx={{ textDecoration: t.payment?.reversedAt ? 'line-through' : undefined, whiteSpace: 'nowrap' }}
+                    >
+                      {t.type === 'INCOME' ? '+' : '-'} {fmt(t.amount)}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                    <Chip
+                      label={t.kind === 'REVERSAL' ? 'Estorno' : t.payment ? 'Baixa de conta' : 'Avulso'}
+                      size="small"
+                      variant="outlined"
+                      color={t.kind === 'REVERSAL' ? 'warning' : t.payment ? 'primary' : 'default'}
+                    />
+                    <Box sx={{ flexGrow: 1 }} />
+                    {t.payment && !t.payment.reversedAt && (
+                      <Button size="small" startIcon={<Undo />} onClick={() => setReversing(t.payment)}>
+                        Desfazer
+                      </Button>
+                    )}
+                    {t.payment?.reversedAt && (
+                      <Chip size="small" label="estornada" color="warning" variant="outlined" />
+                    )}
+                  </Box>
+                </Paper>
+              ))}
+            </Stack>
+          ) : (
           <TableContainer component={Paper} variant="outlined">
             <Table size="small">
               <TableHead>
@@ -557,7 +699,10 @@ export default function CashRegisterSection() {
                   <TableCell>Hora</TableCell>
                   <TableCell>Descrição</TableCell>
                   <TableCell>Categoria</TableCell>
-                  <TableCell>Quem</TableCell>
+                  {/* Com uma pessoa só operando, esta coluna repete o mesmo nome
+                      em toda linha. Ela volta sozinha no dia da contratação — a
+                      autoria continua gravada, é só a tela que não a mostra. */}
+                  {showWho && <TableCell>Quem</TableCell>}
                   <TableCell>Origem</TableCell>
                   <TableCell align="right">Valor</TableCell>
                   <TableCell />
@@ -566,10 +711,16 @@ export default function CashRegisterSection() {
               <TableBody>
                 {transactions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center">
-                      <Typography variant="body2" color="text.secondary" py={2}>
-                        Nenhuma movimentação de dinheiro ainda
-                      </Typography>
+                    <TableCell colSpan={showWho ? 7 : 6}>
+                      <Box sx={{ textAlign: 'center', py: 4, px: 2 }}>
+                        <Typography variant="body1" fontWeight={600} gutterBottom>
+                          Nenhum dinheiro entrou ou saiu da gaveta hoje.
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          As linhas aparecem aqui quando você recebe uma conta em dinheiro, lança
+                          uma venda avulsa ou faz uma sangria.
+                        </Typography>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 )}
@@ -578,11 +729,13 @@ export default function CashRegisterSection() {
                     <TableCell>{dayjs(t.createdAt).format('HH:mm')}</TableCell>
                     <TableCell>{t.description}</TableCell>
                     <TableCell>{t.category ?? '—'}</TableCell>
-                    <TableCell>
-                      <Typography variant="caption" color="text.secondary">
-                        {t.user?.name ?? '—'}
-                      </Typography>
-                    </TableCell>
+                    {showWho && (
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary">
+                          {t.user?.name ?? '—'}
+                        </Typography>
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Chip
                         label={
@@ -606,13 +759,13 @@ export default function CashRegisterSection() {
                     </TableCell>
                     <TableCell align="right">
                       {/* Estorno só faz sentido para baixa de conta: lançamento
-                          avulso errado se resolve com um lançamento contrário. */}
+                          avulso errado se resolve com um lançamento contrário.
+                          É a correção mais importante do módulo, e um ícone sem
+                          rótulo na última coluna esconde justamente isso. */}
                       {t.payment && !t.payment.reversedAt && (
-                        <Tooltip title="Estornar esta baixa">
-                          <IconButton size="small" onClick={() => setReversing(t.payment)}>
-                            <Undo fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        <Button size="small" startIcon={<Undo />} onClick={() => setReversing(t.payment)}>
+                          Desfazer
+                        </Button>
                       )}
                       {t.payment?.reversedAt && (
                         <Chip size="small" label="estornada" color="warning" variant="outlined" />
@@ -623,12 +776,20 @@ export default function CashRegisterSection() {
               </TableBody>
             </Table>
           </TableContainer>
+          )}
 
           <Divider sx={{ my: 2 }} />
-          <Typography variant="caption" color="text.secondary">
-            Apenas movimentações em espécie aparecem aqui. Recebimentos em Pix, cartão ou
-            transferência ficam em Contas a Receber e no Fluxo de Caixa.
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>
+              Apenas movimentações em espécie aparecem aqui. Recebimentos em Pix, cartão ou
+              transferência ficam em Contas do mês e em Onde está o dinheiro.
+            </Typography>
+            {/* Consulta esporádica: um link daqui basta, e a barra fica com uma
+                aba a menos para lembrar. */}
+            <Button size="small" onClick={() => navigate('/financial/caixas')}>
+              ver caixas anteriores
+            </Button>
+          </Box>
         </>
       )}
 

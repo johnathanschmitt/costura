@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import {
   Box, Typography, Button, Grid, TextField, Card, CardContent,
   Breadcrumbs, Link, Switch, FormControlLabel, MenuItem,
-  alpha, Chip,
+  alpha, Chip, Alert,
 } from '@mui/material';
 import { ArrowBack, CheckroomOutlined } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -28,6 +28,7 @@ export default function GarmentFormPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [form, setForm] = useState<GarmentForm>(EMPTY);
+  const [error, setError] = useState('');
 
   const { data: existing } = useQuery({
     queryKey: ['garment', id],
@@ -73,8 +74,14 @@ export default function GarmentFormPage() {
 
   const handleSave = async () => {
     if (!form.name.trim()) return;
-    await saveNow();
-    if (!isEdit) navigate('/catalog/garments');
+    setError('');
+    try {
+      await saveNow();
+      if (!isEdit) navigate('/catalog/garments');
+    } catch {
+      // Sem isto, uma criação que falha sairia da tela como se tivesse salvo.
+      setError('Erro ao salvar a peça');
+    }
   };
 
   const color = CATEGORY_COLOR[form.category] ?? '#898781';
@@ -106,6 +113,8 @@ export default function GarmentFormPage() {
           )}
         </Box>
       </Box>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Grid container spacing={3}>
         {/* Preview */}

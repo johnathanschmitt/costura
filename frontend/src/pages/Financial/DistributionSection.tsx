@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Box, Grid, Card, CardContent, Typography, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, Paper, Chip, IconButton, Skeleton,
+  TableContainer, TableHead, TableRow, Paper, Chip, IconButton, Skeleton, Stack,
   Button, Alert, Avatar, Divider, Accordion, AccordionSummary, AccordionDetails,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Tooltip,
   FormControlLabel, Checkbox,
@@ -16,6 +16,7 @@ import api from '../../services/api';
 import { useToast } from '../../store/toast.store';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import { apiError, fmt, toNumber } from './format';
+import { useCompact } from './useCompact';
 
 const monthLabel = (key: string) => dayjs(`${key}-01`).format('MMMM [de] YYYY');
 
@@ -130,6 +131,7 @@ function RuleDialog({ open, onClose, data }: any) {
 }
 
 export default function DistributionSection() {
+  const compact = useCompact();
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
@@ -198,6 +200,55 @@ export default function DistributionSection() {
 
   const result = toNumber(data.result);
   const closed = data.closed;
+  const gross = toNumber(data.grossResult);
+
+  // Uma única faixa no topo, escolhida por prioridade. `null` é o caso bom: o
+  // topo da tela fica livre e a conta começa logo abaixo do navegador de mês.
+  const topAlert = data.shares.length === 0 ? (
+    <Alert severity="warning" sx={{ mb: 2 }}>
+      Nenhuma sócia cadastrada. Marque quem são as sócias em{' '}
+      <strong>Configurações → Usuários</strong> para o sistema calcular a divisão.
+    </Alert>
+  ) : !data.rule.valid ? (
+    <Alert severity="error" sx={{ mb: 2 }} action={
+      <Button size="small" onClick={() => setRuleOpen(true)}>Ajustar regra</Button>
+    }>
+      Os percentuais somam <strong>{toNumber(data.rule.percentTotal).toFixed(2)}%</strong> —
+      precisam fechar 100% para dividir.
+      {data.rule.partnersWithoutPercent.length > 0 && (
+        <> Sem percentual: {data.rule.partnersWithoutPercent.join(', ')}.</>
+      )}
+    </Alert>
+  ) : gross < 0 && !closed ? (
+    <Alert
+      severity="warning"
+      sx={{ mb: 2 }}
+      action={
+        <Button
+          size="small"
+          onClick={() => settleLossMutation.mutate()}
+          disabled={settleLossMutation.isPending}
+        >
+          Cobrir com a reserva
+        </Button>
+      }
+    >
+      O mês fechou negativo em <strong>{fmt(Math.abs(gross))}</strong>. A reserva do ateliê tem{' '}
+      {fmt(data.reserve.balance)} — o que ela não cobrir passa para o mês seguinte.
+    </Alert>
+  ) : closed ? (
+    <Alert severity="success" sx={{ mb: 2 }}>
+      Divisão fechada em {dayjs(closed.closedAt).format('DD/MM/YYYY [às] HH:mm')} com os valores
+      congelados abaixo. Lançamentos feitos depois disso não alteram estes números.
+      {closed.notes && <> — <em>{closed.notes}</em></>}
+    </Alert>
+  ) : result <= 0 ? (
+    <Alert severity="info" sx={{ mb: 2 }}>
+      {gross === 0
+        ? 'O mês fechou zerado — não há resultado a dividir.'
+        : 'Depois de tirar os sinais de peças não entregues e o prejuízo anterior, não sobrou nada para dividir.'}
+    </Alert>
+  ) : null;
 
   return (
     <Box>
@@ -230,60 +281,14 @@ export default function DistributionSection() {
         )}
       </Box>
 
-      {data.shares.length === 0 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          Nenhuma sócia cadastrada. Marque quem são as sócias em{' '}
-          <strong>Configurações → Usuários</strong> para o sistema calcular a divisão.
-        </Alert>
-      )}
-
-      {toNumber(data.grossResult) < 0 && !closed && (
-        <Alert
-          severity="warning"
-          sx={{ mb: 2 }}
-          action={
-            <Button
-              size="small"
-              onClick={() => settleLossMutation.mutate()}
-              disabled={settleLossMutation.isPending}
-            >
-              Cobrir com a reserva
-            </Button>
-          }
-        >
-          O mês fechou negativo em <strong>{fmt(Math.abs(toNumber(data.grossResult)))}</strong>. A
-          reserva do ateliê tem {fmt(data.reserve.balance)} — o que ela não cobrir passa para o mês
-          seguinte.
-        </Alert>
-      )}
-
-      {result <= 0 && toNumber(data.grossResult) >= 0 && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          {toNumber(data.grossResult) === 0
-            ? 'O mês fechou zerado — não há resultado a dividir.'
-            : 'Depois de tirar os sinais de peças não entregues e o prejuízo anterior, não sobrou nada para dividir.'}
-        </Alert>
-      )}
-
-      {!data.rule.valid && (
-        <Alert severity="error" sx={{ mb: 2 }} action={
-          <Button size="small" onClick={() => setRuleOpen(true)}>Ajustar regra</Button>
-        }>
-          Os percentuais somam <strong>{toNumber(data.rule.percentTotal).toFixed(2)}%</strong> —
-          precisam fechar 100% para dividir.
-          {data.rule.partnersWithoutPercent.length > 0 && (
-            <> Sem percentual: {data.rule.partnersWithoutPercent.join(', ')}.</>
-          )}
-        </Alert>
-      )}
-
-      {closed && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          Divisão fechada em {dayjs(closed.closedAt).format('DD/MM/YYYY [às] HH:mm')} com os valores
-          congelados abaixo. Lançamentos feitos depois disso não alteram estes números.
-          {closed.notes && <> — <em>{closed.notes}</em></>}
-        </Alert>
-      )}
+      {/*
+        Um aviso por vez, por prioridade. Nunca aparecem os quatro juntos, mas
+        dois aparecem — e aí o topo da tela vira um muro que ninguém lê. A
+        ordem é a de quem bloqueia primeiro: sem sócia não há divisão; regra
+        inválida impede a conta; mês negativo tem uma ação própria; e "nada a
+        dividir" é só a constatação de que a conta deu zero.
+      */}
+      {topAlert}
 
       {/* Como se chega ao valor a dividir — a conta aberta, linha a linha */}
       <Card variant="outlined" sx={{ mb: 3 }}>
@@ -355,6 +360,69 @@ export default function DistributionSection() {
 
           <Divider sx={{ my: 2 }} />
 
+          {/* No telefone as quatro colunas viram uma linha por pessoa: quem,
+              quanto, e o botão da retirada embaixo. É a leitura que interessa —
+              "quanto cabe a cada uma" — sem rolagem de lado. */}
+          {compact ? (
+            <Stack divider={<Divider />}>
+              {[
+                {
+                  key: 'atelier',
+                  icon: <Storefront fontSize="small" color="primary" />,
+                  name: 'Ateliê (reserva)',
+                  percent: toNumber(closed?.atelierPercent ?? data.rule.atelierPercent),
+                  amount: closed ? closed.atelierShare : data.atelierShare,
+                  color: 'text.primary',
+                  action: <Typography variant="caption" color="text.secondary">vai para a reserva</Typography>,
+                },
+                ...(closed ? closed.shares : data.shares).map((s: any) => {
+                  const payout = closed?.payouts?.find((p: any) => p.userId === s.userId);
+                  return {
+                    key: s.userId,
+                    icon: (
+                      <Avatar sx={{ width: 26, height: 26, fontSize: 12, bgcolor: 'secondary.main' }}>
+                        {s.name.charAt(0).toUpperCase()}
+                      </Avatar>
+                    ),
+                    name: s.name,
+                    percent: toNumber(s.percent),
+                    amount: s.amount,
+                    color: 'success.main',
+                    action: !closed ? (
+                      <Typography variant="caption" color="text.secondary">após fechar a divisão</Typography>
+                    ) : payout?.paidAt ? (
+                      <Chip size="small" color="success" label={`retirado ${dayjs(payout.paidAt).format('DD/MM')}`} />
+                    ) : payout ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => payoutMutation.mutate(payout.id)}
+                        disabled={payoutMutation.isPending}
+                      >
+                        registrar retirada
+                      </Button>
+                    ) : null,
+                  };
+                }),
+              ].map(row => (
+                <Box key={row.key} sx={{ py: 1.25 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {row.icon}
+                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                      <Typography variant="body2" noWrap>{row.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {row.percent.toFixed(2)}%
+                      </Typography>
+                    </Box>
+                    <Typography variant="h6" fontWeight={700} color={row.color}>
+                      {fmt(row.amount)}
+                    </Typography>
+                  </Box>
+                  {row.action && <Box sx={{ mt: 0.5, pl: 4.5 }}>{row.action}</Box>}
+                </Box>
+              ))}
+            </Stack>
+          ) : (
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -432,6 +500,7 @@ export default function DistributionSection() {
               })}
             </TableBody>
           </Table>
+          )}
 
           {closed && (
             <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>
@@ -486,6 +555,30 @@ export default function DistributionSection() {
               <Typography variant="body2" color="text.secondary" py={1}>
                 Nenhuma peça entregue por ela neste mês.
               </Typography>
+            ) : compact ? (
+              /* Cinco colunas dentro de um acordeão não cabem no telefone; a
+                 peça vira uma linha com cliente, data e valor. */
+              <Stack divider={<Divider />}>
+                {s.items.map((i: any) => (
+                  <Box
+                    key={i.id}
+                    onClick={() => navigate(`/work-orders/${i.id}/edit`)}
+                    sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, py: 1, cursor: 'pointer' }}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" noWrap>{i.customer}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {i.number}
+                        {i.garment && ` · ${i.garment}`}
+                        {` · ${dayjs(i.deliveredAt).format('DD/MM')}`}
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" fontWeight={600} sx={{ whiteSpace: 'nowrap' }}>
+                      {fmt(i.value)}
+                    </Typography>
+                  </Box>
+                ))}
+              </Stack>
             ) : (
               <Table size="small">
                 <TableHead>

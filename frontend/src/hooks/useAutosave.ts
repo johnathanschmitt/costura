@@ -14,14 +14,23 @@ export function useAutosave<T>(
   const latestData = useRef(data);
   latestData.current = data;
 
+  /**
+   * O erro é sinalizado no indicador **e** repassado a quem chamou.
+   *
+   * Engolindo a exceção aqui, o `catch` de quem clicou em "Salvar" nunca
+   * rodava: a tela seguia como se tivesse dado certo — no cadastro de cliente,
+   * uma criação que falhava mandava a usuária de volta para a lista sem
+   * mensagem nenhuma, e a cliente simplesmente não estava lá.
+   */
   const save = useCallback(async () => {
     setStatus('saving');
     try {
       await saveFn(latestData.current);
       setStatus('saved');
       setTimeout(() => setStatus('idle'), 2000);
-    } catch {
+    } catch (e) {
       setStatus('error');
+      throw e;
     }
   }, [saveFn]);
 
@@ -33,7 +42,10 @@ export function useAutosave<T>(
     if (!enabled) return;
 
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(save, delay);
+    // O salvamento automático não tem quem trate a falha: o indicador já
+    // mostrou "erro", e deixar a promessa rejeitada solta derrubaria o console
+    // a cada digitação com a rede fora do ar.
+    timerRef.current = setTimeout(() => { save().catch(() => {}); }, delay);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);

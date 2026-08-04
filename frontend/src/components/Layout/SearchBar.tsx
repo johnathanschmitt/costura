@@ -1,13 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Box, InputBase, Paper, List, ListItem, ListItemText,
-  ListItemIcon, Typography, Divider, CircularProgress, alpha, useMediaQuery, useTheme,
+  ListItemIcon, Typography, Divider, CircularProgress, useMediaQuery, useTheme,
 } from '@mui/material';
-import { Search, People, RequestQuote, Assignment, MiscellaneousServices } from '@mui/icons-material';
+import {
+  Search, People, RequestQuote, Assignment, MiscellaneousServices, AttachMoney,
+} from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import dayjs from 'dayjs';
 import { useDebounce } from '../../hooks/useDebounce';
 import api from '../../services/api';
+
+const brl = (v: number) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Rascunho', SENT: 'Enviado', APPROVED: 'Aprovado',
@@ -33,7 +39,8 @@ export default function SearchBar() {
 
   const total = data
     ? (data.customers?.length ?? 0) + (data.quotes?.length ?? 0) +
-      (data.workOrders?.length ?? 0) + (data.services?.length ?? 0)
+      (data.workOrders?.length ?? 0) + (data.services?.length ?? 0) +
+      (data.receivables?.length ?? 0)
     : 0;
 
   useEffect(() => {
@@ -128,6 +135,45 @@ export default function SearchBar() {
                     <ListItemText primary={`${wo.number} — ${wo.customer?.name}`} secondary={STATUS_LABEL[wo.status] ?? wo.status} primaryTypographyProps={{ variant: 'body2' }} secondaryTypographyProps={{ variant: 'caption' }} />
                   </ListItem>
                 ))}
+              </List>
+            </>
+          )}
+
+          {/* "Quanto a Maria me deve" tem resposta aqui, sem passar pelo
+              financeiro: a busca já é o caminho mais curto do sistema. */}
+          {data?.receivables?.length > 0 && (
+            <>
+              <Divider />
+              <Box sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
+                <Typography variant="caption" fontWeight={700} color="text.secondary" textTransform="uppercase" letterSpacing={0.5}>
+                  Contas em aberto
+                </Typography>
+              </Box>
+              <List dense disablePadding>
+                {data.receivables.map((r: any) => {
+                  const saldo = Number(r.amount ?? 0) - Number(r.paidAmount ?? 0);
+                  const dias = dayjs().diff(dayjs(r.dueDate), 'day');
+                  return (
+                    <ListItem key={r.id} button onClick={() => go('/financial/contas-do-mes')} sx={{ px: 2 }}>
+                      <ListItemIcon sx={{ minWidth: 32 }}>
+                        <AttachMoney fontSize="small" color={r.status === 'OVERDUE' ? 'error' : 'success'} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={`${r.customer?.name ?? 'Sem cliente'} — ${brl(saldo)}`}
+                        secondary={
+                          r.status === 'OVERDUE'
+                            ? `${r.description} · venceu há ${dias} dia(s)`
+                            : `${r.description} · vence ${dayjs(r.dueDate).format('DD/MM')}`
+                        }
+                        primaryTypographyProps={{ variant: 'body2' }}
+                        secondaryTypographyProps={{
+                          variant: 'caption',
+                          color: r.status === 'OVERDUE' ? 'error.main' : 'text.secondary',
+                        }}
+                      />
+                    </ListItem>
+                  );
+                })}
               </List>
             </>
           )}

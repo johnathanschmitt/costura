@@ -125,7 +125,7 @@ export default function NotificationBell() {
               <Section icon={<AccountBalance fontSize="small" />} title="Caixa aberto" color="#eda100">
                 <ListItem
                   button
-                  onClick={() => go('/financial')}
+                  onClick={() => go('/financial/caixa')}
                   sx={{ px: 2, '&:hover': { bgcolor: 'action.hover' } }}
                 >
                   <ListItemText
@@ -149,7 +149,7 @@ export default function NotificationBell() {
                     <ListItem
                       key={r.id}
                       button
-                      onClick={() => go('/financial')}
+                      onClick={() => go('/financial/contas-do-mes')}
                       sx={{ px: 2, '&:hover': { bgcolor: 'action.hover' } }}
                     >
                       <ListItemText
@@ -175,7 +175,7 @@ export default function NotificationBell() {
                     <ListItem
                       key={p.id}
                       button
-                      onClick={() => go('/financial')}
+                      onClick={() => go('/financial/contas-do-mes?lado=pagar')}
                       sx={{ px: 2, '&:hover': { bgcolor: 'action.hover' } }}
                     >
                       <ListItemText

@@ -5,7 +5,7 @@ import {
 } from '@mui/material';
 import MoneyField from './fields/MoneyField';
 
-const METHODS = [
+export const METHODS = [
   { value: 'PIX', label: 'Pix' },
   { value: 'CASH', label: 'Dinheiro' },
   { value: 'CREDIT_CARD', label: 'Cartão de Crédito' },
@@ -25,11 +25,17 @@ interface Props {
   error?: string;
   confirmColor?: 'success' | 'error' | 'primary';
   amountLabel?: string;
+  /**
+   * Verbo do botão. O botão é a última coisa lida antes da ação, e é ali que a
+   * frase precisa estar inteira — "Receber R$ 480,00 no Pix" diz o que vai
+   * acontecer; "Confirmar" obriga a lembrar o que estava sendo confirmado.
+   */
+  verb?: string;
 }
 
 export default function PaymentDialog({
   open, onClose, onConfirm, title, maxAmount, loading, error,
-  confirmColor = 'success', amountLabel = 'Valor recebido (R$)',
+  confirmColor = 'success', amountLabel = 'Valor recebido (R$)', verb = 'Receber',
 }: Props) {
   const [amount, setAmount] = useState<number | null>(null);
   const [method, setMethod] = useState('PIX');
@@ -124,7 +130,9 @@ export default function PaymentDialog({
           onClick={() => onConfirm(value, method, hasTendered ? tenderedValue : undefined)}
           disabled={!valid || exceeds || tenderedShort || loading}
         >
-          Confirmar
+          {valid && !exceeds
+            ? `${verb} ${fmt(value)} no ${METHODS.find(m => m.value === method)?.label ?? method}`
+            : verb}
         </Button>
       </DialogActions>
     </Dialog>

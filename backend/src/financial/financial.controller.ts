@@ -304,6 +304,12 @@ export class FinancialController {
     return this.service.getOverview();
   }
 
+  @ApiOperation({ summary: 'Histórico financeiro de uma cliente: gasto, saldo em aberto e pontualidade' })
+  @Get('customers/:id/summary')
+  getCustomerFinancials(@Param('id') id: string) {
+    return this.service.getCustomerFinancials(id);
+  }
+
   @ApiOperation({ summary: 'Parâmetros do financeiro: custo fixo e meta por hora' })
   @Get('settings')
   getSettings() {

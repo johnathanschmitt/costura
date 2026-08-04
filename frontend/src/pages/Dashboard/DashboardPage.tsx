@@ -63,7 +63,7 @@ export default function DashboardPage() {
           <StatCard title="OS Abertas" value={data?.openWorkOrders ?? 0} icon={<Assignment />} color="warning" />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard title="Receita do Mês" value={fmt(data?.monthRevenue ?? 0)} icon={<MonetizationOn />} color="success" />
+          <StatCard title="Entrou no Mês" value={fmt(data?.monthRevenue ?? 0)} icon={<MonetizationOn />} color="success" />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
           <StatCard title="A Receber" value={fmt(data?.pendingReceivables ?? 0)} icon={<Warning />} color="error" />

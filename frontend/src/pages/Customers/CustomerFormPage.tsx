@@ -13,6 +13,7 @@ import api from '../../services/api';
 import { useAutosave } from '../../hooks/useAutosave';
 import AutosaveIndicator from '../../components/common/AutosaveIndicator';
 import MeasurementsCard from './MeasurementsCard';
+import CustomerFinancialCard from './CustomerFinancialCard';
 
 interface CustomerForm {
   name: string;
@@ -113,13 +114,18 @@ export default function CustomerFormPage() {
         <Link component="button" variant="body2" onClick={() => navigate('/customers')} underline="hover" color="inherit">
           Clientes
         </Link>
-        <Typography variant="body2" color="text.primary">{isEdit ? 'Editar' : 'Novo'}</Typography>
+        <Typography variant="body2" color="text.primary">{isEdit ? 'Ficha' : 'Novo'}</Typography>
       </Breadcrumbs>
 
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Button size="small" startIcon={<ArrowBack />} onClick={() => navigate('/customers')}>Voltar</Button>
-          <Typography variant="h5">{isEdit ? 'Editar Cliente' : 'Novo Cliente'}</Typography>
+          {/* O nome da cliente é o título: a mesma tela é aberta pelo olho e
+              pelo lápis, e "Editar Cliente" em cima de quem só quis consultar
+              soa como se algo já tivesse sido mexido. */}
+          <Typography variant="h5">
+            {isEdit ? (existing?.name || 'Ficha da cliente') : 'Novo Cliente'}
+          </Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {isEdit && <AutosaveIndicator status={saveStatus} />}
@@ -192,7 +198,13 @@ export default function CustomerFormPage() {
           </Card>
         </Grid>
 
-        {/* Medidas — só aparece em edição */}
+        {/* Financeiro e medidas — só existem depois que a cliente existe */}
+        {isEdit && id && (
+          <Grid item xs={12}>
+            <CustomerFinancialCard customerId={id} />
+          </Grid>
+        )}
+
         {isEdit && id && (
           <Grid item xs={12}>
             <MeasurementsCard customerId={id} />

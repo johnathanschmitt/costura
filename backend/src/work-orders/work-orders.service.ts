@@ -3,9 +3,11 @@ import { Prisma, WorkOrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_INCOME_CATEGORY } from '../financial/financial.constants';
 import { InventoryService } from '../inventory/inventory.service';
+// A entrega recebe o pagamento no mesmo diálogo (§3.1) — a baixa é do financeiro.
+import { FinancialService } from '../financial/financial.service';
 import {
   AssignDto, BoardQueryDto, CancelWorkOrderDto, CreateUpdateDto, CreateWorkOrderDto, DeliverDto,
-  ListWorkOrdersDto, SetEstimatedHoursDto, UpdateStatusDto, UpdateWorkOrderDto,
+  DeliverPaymentDto, ListWorkOrdersDto, SetEstimatedHoursDto, UpdateStatusDto, UpdateWorkOrderDto,
   WorkOrderItemDto,
 } from './dto/work-orders.dto';
 
@@ -26,7 +28,11 @@ export const BOARD_COLUMNS: WorkOrderStatus[] = [
 
 @Injectable()
 export class WorkOrdersService {
-  constructor(private prisma: PrismaService, private inventory: InventoryService) {}
+  constructor(
+    private prisma: PrismaService,
+    private inventory: InventoryService,
+    private financial: FinancialService,
+  ) {}
 
   private async nextNumber() {
     const last = await this.prisma.workOrder.findFirst({ orderBy: { createdAt: 'desc' } });
@@ -77,7 +83,7 @@ export class WorkOrdersService {
 
   async findAll(query: ListWorkOrdersDto) {
     const {
-      page = 1, limit = 20, search, status, priority, assignedToId, garmentId,
+      page = 1, limit = 20, search, status, priority, assignedToId, garmentId, customerId,
       startDate, endDate, dueStart, dueEnd,
     } = query;
 
@@ -87,6 +93,7 @@ export class WorkOrdersService {
       ...(priority && { priority }),
       ...(assignedToId && { assignedToId }),
       ...(garmentId && { garmentId }),
+      ...(customerId && { customerId }),
       ...(startDate && endDate && { createdAt: { gte: new Date(startDate), lte: new Date(endDate) } }),
       ...((dueStart || dueEnd) && {
         dueDate: {
@@ -112,11 +119,22 @@ export class WorkOrdersService {
           customer: { select: { id: true, name: true, phone: true } },
           assignedTo: { select: { id: true, name: true } },
           garment: { select: { id: true, name: true } },
+          // O saldo da OS decide o que a tela oferece — receber ou só entregar.
+          // Sem ele, a lista obriga a abrir uma OS por vez para descobrir.
+          accountsReceivable: { select: { amount: true, paidAmount: true, status: true } },
         },
       }),
       this.prisma.workOrder.count({ where }),
     ]);
-    return { data, total, page, limit };
+    return {
+      data: data.map(({ accountsReceivable, ...wo }) => ({
+        ...wo,
+        financials: this.financials(wo.total, wo.discount, accountsReceivable),
+      })),
+      total,
+      page,
+      limit,
+    };
   }
 
   /** Quadro de produção agrupado por status, com contadores por coluna. */
@@ -317,11 +335,94 @@ export class WorkOrdersService {
   }
 
   /**
+   * Cria a cobrança de uma OS que nasceu sem orçamento. Sem ela o valor não
+   * existe no financeiro — e não há onde dar baixa quando a cliente paga.
+   */
+  private createReceivableFor(
+    tx: Prisma.TransactionClient | PrismaService,
+    wo: { id: string; number: string; customerId: string },
+    total: Prisma.Decimal,
+  ) {
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 30);
+    return tx.accountReceivable.create({
+      data: {
+        customerId: wo.customerId,
+        workOrderId: wo.id,
+        description: `${wo.number} — entrega`,
+        amount: total,
+        dueDate,
+        category: DEFAULT_INCOME_CATEGORY,
+      },
+    });
+  }
+
+  /**
+   * Baixa o saldo da OS no ato da entrega, distribuindo o valor entre as contas
+   * em aberto da mais antiga para a mais nova — que é a ordem em que a cliente
+   * deve. Roda antes da entrega porque é o pagamento que zera o saldo que a
+   * entrega valida logo em seguida.
+   */
+  private async receiveOnDelivery(id: string, payment: DeliverPaymentDto) {
+    const wo = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        accountsReceivable: {
+          where: { deletedAt: null },
+          select: { id: true, amount: true, paidAmount: true, status: true, dueDate: true },
+        },
+      },
+    });
+    if (!wo) throw new NotFoundException('Ordem de serviço não encontrada');
+    if (wo.status === 'DELIVERED') throw new BadRequestException('Esta OS já foi entregue');
+    if (wo.status === 'CANCELLED') throw new BadRequestException('OS cancelada não pode ser entregue');
+
+    const fin = this.financials(wo.total, wo.discount, wo.accountsReceivable);
+    if (fin.balance.lte(0)) {
+      throw new BadRequestException('Esta OS não tem saldo em aberto');
+    }
+
+    let left = D(payment.amount);
+    if (left.gt(fin.balance)) {
+      throw new BadRequestException(`Valor excede o saldo em aberto de ${brl(fin.balance)}`);
+    }
+
+    const open = fin.hasReceivable
+      ? wo.accountsReceivable
+        .filter(r => r.status !== 'CANCELLED' && r.status !== 'PAID')
+        .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
+      : [await this.createReceivableFor(this.prisma, wo, fin.total)];
+
+    // O troco só faz sentido quando a baixa é uma só; espalhado entre contas
+    // ele viraria um valor entregue por parcela, que ninguém contou assim.
+    const tendered = open.length === 1 ? payment.amountTendered : undefined;
+
+    for (const rec of open) {
+      if (left.lte(0)) break;
+      const remaining = D(rec.amount).minus(rec.paidAmount);
+      if (remaining.lte(0)) continue;
+      const slice = Prisma.Decimal.min(left, remaining);
+      await this.financial.payReceivable(rec.id, {
+        amount: slice.toNumber(),
+        method: payment.method,
+        accountId: payment.accountId,
+        amountTendered: tendered,
+      });
+      left = left.minus(slice);
+    }
+  }
+
+  /**
    * Registro de entrega. Recusa quando há saldo devedor, a menos que a
    * atendente confirme conscientemente — é a decisão que o backlog pede que o
    * sistema force alguém a tomar, em vez de deixar passar silenciosamente.
+   *
+   * Quando vem `payment`, a cliente está pagando no balcão: o recebimento entra
+   * primeiro e a entrega encontra o saldo já zerado.
    */
   async deliver(id: string, dto: DeliverDto, userId?: string) {
+    if (dto.payment) await this.receiveOnDelivery(id, dto.payment);
+
     return this.prisma.$transaction(async tx => {
       const wo = await tx.workOrder.findFirst({
         where: { id, deletedAt: null },
@@ -346,18 +447,7 @@ export class WorkOrdersService {
       // OS criada direto (sem orçamento) não tem cobrança nenhuma; entregar sem
       // gerar a conta faria o valor sumir do financeiro.
       if (!fin.hasReceivable && fin.total.gt(0)) {
-        const dueDate = new Date();
-        dueDate.setDate(dueDate.getDate() + 30);
-        await tx.accountReceivable.create({
-          data: {
-            customerId: wo.customerId,
-            workOrderId: wo.id,
-            description: `${wo.number} — entrega`,
-            amount: fin.total,
-            dueDate,
-            category: DEFAULT_INCOME_CATEGORY,
-          },
-        });
+        await this.createReceivableFor(tx, wo, fin.total);
       }
 
       return tx.workOrder.update({

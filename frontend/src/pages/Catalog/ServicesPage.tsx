@@ -65,7 +65,16 @@ export default function ServicesPage() {
             {isLoading ? Array.from({ length: 5 }).map((_, i) => (
               <TableRow key={i}>{[1,2,3,4,5,6].map(j => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
             )) : (data as any[]).map((s: any) => (
-              <TableRow key={s.id} hover>
+              /* Clicar em qualquer lugar da linha abre o registro — é o que se
+                     tenta primeiro numa lista, e no celular poupa mirar num
+                     ícone de 20px. A coluna de ações para o clique, para não
+                     navegar junto com o botão. */
+              <TableRow
+                key={s.id}
+                hover
+                sx={{ cursor: 'pointer' }}
+                onClick={() => navigate(`/catalog/services/${s.id}/edit`)}
+              >
                 <TableCell sx={{ fontWeight: 500 }}>{s.name}</TableCell>
                 <TableCell sx={{ color: 'text.secondary', maxWidth: 300 }}>
                   <Typography noWrap variant="body2">{s.description ?? '—'}</Typography>
@@ -79,7 +88,7 @@ export default function ServicesPage() {
                 <TableCell align="center">
                   <Chip label={s.active ? 'Ativo' : 'Inativo'} size="small" color={s.active ? 'success' : 'default'} />
                 </TableCell>
-                <TableCell align="right">
+                <TableCell align="right" onClick={e => e.stopPropagation()}>
                   <IconButton size="small" onClick={() => navigate(`/catalog/services/${s.id}/edit`)}>
                     <Edit fontSize="small" />
                   </IconButton>

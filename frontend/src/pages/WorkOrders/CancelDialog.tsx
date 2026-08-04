@@ -61,7 +61,7 @@ export default function CancelDialog({ workOrder, onClose, onCancelled }: Props)
       const d = res.data;
       toast(
         `OS cancelada${d.cancelledReceivables ? ` · ${d.cancelledReceivables} cobrança(s) encerrada(s)` : ''}` +
-        `${d.refunded ? ' · devolução gerada em Contas a Pagar' : ''}` +
+        `${d.refunded ? ' · devolução gerada em Contas do mês' : ''}` +
         `${d.materialsReturned ? ` · ${d.materialsReturned} material(is) devolvido(s)` : ''}`,
         'info',
       );

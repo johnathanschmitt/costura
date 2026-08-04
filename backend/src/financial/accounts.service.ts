@@ -78,10 +78,14 @@ export class AccountsService {
         where: { reversedAt: null, accountId: { not: null } },
         select: {
           accountId: true, type: true, amount: true, netAmount: true, availableAt: true,
+          reconciledAt: true,
         },
       }),
       this.prisma.accountTransfer.findMany({
-        select: { fromAccountId: true, toAccountId: true, amount: true, cashTransactionId: true },
+        select: {
+          fromAccountId: true, toAccountId: true, amount: true, cashTransactionId: true,
+          reconciledAt: true,
+        },
       }),
     ]);
 
@@ -110,10 +114,14 @@ export class AccountsService {
       // Venda no cartão que ainda não caiu: já é do ateliê, mas não dá para
       // gastar hoje — some do saldo e aparece à parte.
       let pending = ZERO;
+      // Lançamento que ainda não passou pelos olhos de ninguém contra o extrato
+      // do banco. A gaveta é conferida contando dinheiro, no fechamento.
+      let unreconciled = 0;
 
       if (!isDrawer) {
         for (const p of payments) {
           if (p.accountId !== account.id) continue;
+          if (!p.reconciledAt) unreconciled += 1;
           // No cartão o que cai na conta é o líquido, não o que a cliente pagou.
           const value = D(p.netAmount ?? p.amount);
           if (p.type === 'PAYABLE') {
@@ -130,11 +138,13 @@ export class AccountsService {
         // A sangria já saiu do saldo da gaveta como lançamento do caixa;
         // contar também a transferência tiraria o valor duas vezes.
         if (isDrawer && t.cashTransactionId) continue;
+        const touches = t.toAccountId === account.id || t.fromAccountId === account.id;
+        if (touches && !isDrawer && !t.reconciledAt) unreconciled += 1;
         if (t.toAccountId === account.id) balance = balance.plus(t.amount);
         if (t.fromAccountId === account.id) balance = balance.minus(t.amount);
       }
 
-      return { ...account, balance, pending };
+      return { ...account, balance, pending, unreconciled };
     });
   }
 

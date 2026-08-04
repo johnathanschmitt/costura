@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -20,9 +19,9 @@ export default function CashClosingReportPage() {
     retry: false,
   });
 
-  useEffect(() => {
-    if (data) setTimeout(() => window.print(), 600);
-  }, [data]);
+  // A tela abre o relatório; imprimir é um clique à parte. Disparar a janela de
+  // impressão sozinha fazia todo fechamento de caixa terminar com um diálogo de
+  // PDF na frente, mesmo nos dias em que ninguém queria papel nenhum.
 
   if (isLoading) {
     return <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress /></Box>;

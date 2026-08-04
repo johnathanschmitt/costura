@@ -12,7 +12,9 @@ export class SearchService {
    * porta dos fundos para ver orçamento quem não tem acesso a orçamentos.
    */
   async search(q: string, permissions: string[] = []) {
-    if (!q || q.trim().length < 2) return { customers: [], quotes: [], workOrders: [], services: [] };
+    if (!q || q.trim().length < 2) {
+      return { customers: [], quotes: [], workOrders: [], services: [], receivables: [] };
+    }
     const term = q.trim();
     // Sessão antiga, sem a lista de permissões no token, continua vendo tudo —
     // é o comportamento que já existia, e o resto do sistema barra depois.
@@ -21,7 +23,7 @@ export class SearchService {
     const contains = (field?: string) => ({ contains: term, mode: 'insensitive' as const });
 
     const nothing = Promise.resolve([] as any[]);
-    const [customers, quotes, workOrders, services] = await Promise.all([
+    const [customers, quotes, workOrders, services, receivables] = await Promise.all([
       !can('customers') ? nothing : this.prisma.customer.findMany({
         where: {
           deletedAt: null,
@@ -51,8 +53,25 @@ export class SearchService {
         select: { id: true, name: true, basePrice: true },
         take: 5,
       }),
+      // "Quanto a Maria me deve" era uma pergunta que a busca não respondia:
+      // procurar pelo nome trazia a cliente e as OS, e as contas dela ficavam
+      // a três cliques dentro do financeiro. Só o que está em aberto interessa
+      // aqui — conta quitada é histórico, não resposta de balcão.
+      !can('financial') ? nothing : this.prisma.accountReceivable.findMany({
+        where: {
+          deletedAt: null,
+          status: { notIn: ['PAID', 'CANCELLED'] },
+          OR: [{ description: contains() }, { customer: { name: contains() } }],
+        },
+        select: {
+          id: true, description: true, amount: true, paidAmount: true, dueDate: true, status: true,
+          customer: { select: { id: true, name: true } },
+        },
+        orderBy: { dueDate: 'asc' },
+        take: 5,
+      }),
     ]);
 
-    return { customers, quotes, workOrders, services };
+    return { customers, quotes, workOrders, services, receivables };
   }
 }

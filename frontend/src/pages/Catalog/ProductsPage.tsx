@@ -71,7 +71,16 @@ export default function ProductsPage() {
               const min = p.inventory ? Number(p.inventory.minQuantity) : 0;
               const lowStock = qty !== null && qty <= min;
               return (
-                <TableRow key={p.id} hover>
+                /* Clicar em qualquer lugar da linha abre o registro — é o que se
+                     tenta primeiro numa lista, e no celular poupa mirar num
+                     ícone de 20px. A coluna de ações para o clique, para não
+                     navegar junto com o botão. */
+                <TableRow
+                  key={p.id}
+                  hover
+                  sx={{ cursor: 'pointer' }}
+                  onClick={() => navigate(`/catalog/products/${p.id}/edit`)}
+                >
                   <TableCell sx={{ fontWeight: 500 }}>{p.name}</TableCell>
                   <TableCell sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{p.sku ?? '—'}</TableCell>
                   <TableCell align="center"><Chip label={p.unit} size="small" variant="outlined" /></TableCell>
@@ -98,7 +107,7 @@ export default function ProductsPage() {
                   <TableCell align="center">
                     <Chip label={p.active ? 'Ativo' : 'Inativo'} size="small" color={p.active ? 'success' : 'default'} />
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" onClick={e => e.stopPropagation()}>
                     <IconButton size="small" onClick={() => navigate(`/catalog/products/${p.id}/edit`)}>
                       <Edit fontSize="small" />
                     </IconButton>

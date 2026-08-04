@@ -2,9 +2,9 @@ import { useState } from 'react';
 import {
   Box, Typography, Button, TextField, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Paper, IconButton, Chip,
-  InputAdornment, Skeleton,
+  InputAdornment, Skeleton, Tooltip,
 } from '@mui/material';
-import { Add, Search, Edit, Delete, Visibility } from '@mui/icons-material';
+import { Add, Search, Edit, Delete } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -63,19 +63,38 @@ export default function CustomersPage() {
                 {[1, 2, 3, 4, 5].map(j => <TableCell key={j}><Skeleton /></TableCell>)}
               </TableRow>
             )) : data?.data?.map((c: any) => (
-              <TableRow key={c.id} hover>
+              /* Clicar na linha abre a ficha — é o que se tenta primeiro numa
+                 lista, e poupa mirar num ícone de 20px no celular. */
+              <TableRow
+                key={c.id}
+                hover
+                sx={{ cursor: 'pointer' }}
+                onClick={() => navigate(`/customers/${c.id}`)}
+              >
                 <TableCell>{c.name}</TableCell>
                 <TableCell>{c.phone ?? '—'}</TableCell>
                 <TableCell>{c.email ?? '—'}</TableCell>
                 <TableCell align="center">
                   <Chip label={c._count?.workOrders ?? 0} size="small" />
                 </TableCell>
-                <TableCell align="right">
-                  <IconButton size="small" onClick={() => navigate(`/customers/${c.id}`)}><Visibility fontSize="small" /></IconButton>
-                  <IconButton size="small" onClick={() => navigate(`/customers/${c.id}/edit`)}><Edit fontSize="small" /></IconButton>
-                  <IconButton size="small" color="error" onClick={() => confirm('Remover cliente?') && deleteMutation.mutate(c.id)}>
-                    <Delete fontSize="small" />
-                  </IconButton>
+                <TableCell align="right" onClick={e => e.stopPropagation()}>
+                  {/* Um botão só: o olho e o lápis abriam a mesma tela, porque
+                      a ficha da cliente é a tela de edição. As outras listas do
+                      sistema também têm só o lápis. */}
+                  <Tooltip title="Abrir a ficha">
+                    <IconButton size="small" onClick={() => navigate(`/customers/${c.id}`)}>
+                      <Edit fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Remover">
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => confirm('Remover cliente?') && deleteMutation.mutate(c.id)}
+                    >
+                      <Delete fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 </TableCell>
               </TableRow>
             ))}

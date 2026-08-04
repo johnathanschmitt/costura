@@ -108,7 +108,16 @@ export default function WorkOrdersList() {
               const overdue = wo.dueDate && dayjs(wo.dueDate).isBefore(dayjs(), 'day')
                 && wo.status !== 'DELIVERED' && wo.status !== 'CANCELLED';
               return (
-                <TableRow key={wo.id} hover sx={{ bgcolor: overdue ? 'error.50' : undefined }}>
+                /* Clicar em qualquer lugar da linha abre o registro — é o que se
+                     tenta primeiro numa lista, e no celular poupa mirar num
+                     ícone de 20px. A coluna de ações para o clique, para não
+                     navegar junto com o botão. */
+                <TableRow
+                  key={wo.id}
+                  hover
+                  sx={{ bgcolor: overdue ? 'error.50' : undefined, cursor: 'pointer' }}
+                  onClick={() => navigate(`/work-orders/${wo.id}/edit`)}
+                >
                   <TableCell>{wo.number}</TableCell>
                   <TableCell>{wo.customer?.name}</TableCell>
                   <TableCell>{wo.garment?.name ?? '—'}</TableCell>
@@ -127,7 +136,7 @@ export default function WorkOrdersList() {
                   <TableCell sx={{ color: overdue ? 'error.main' : undefined, fontWeight: overdue ? 600 : undefined }}>
                     {wo.dueDate ? dayjs(wo.dueDate).format('DD/MM/YYYY') : '—'}
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" onClick={e => e.stopPropagation()}>
                     {wo.status === 'PENDING' && (
                       <Tooltip title="Iniciar produção">
                         <IconButton size="small" color="info" onClick={() => statusMutation.mutate({ id: wo.id, status: 'IN_PROGRESS' })}>

@@ -4,7 +4,7 @@ import {
   IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsNumber, IsObject,
   IsOptional, IsPositive, IsString, Max, MaxLength, Min, ValidateNested,
 } from 'class-validator';
-import { ItemType, Priority, WorkOrderStatus } from '@prisma/client';
+import { ItemType, PaymentMethod, Priority, WorkOrderStatus } from '@prisma/client';
 import { EmptyToUndefined } from '../../common/decorators/empty-to-undefined.decorator';
 
 export class WorkOrderItemDto {
@@ -128,12 +128,48 @@ export class AssignDto {
   reason?: string;
 }
 
+/**
+ * Recebimento feito na própria entrega. É o momento em que a cliente está no
+ * balcão com a peça na mão: mandar procurar a conta em outro módulo é o que
+ * fazia o pagamento ficar para depois — e às vezes não acontecer.
+ */
+export class DeliverPaymentDto {
+  @ApiProperty({ description: 'Valor recebido agora. Não pode exceder o saldo da OS.', example: 480 })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Valor inválido' })
+  @IsPositive({ message: 'Valor deve ser maior que zero' })
+  amount: number;
+
+  @ApiProperty({ enum: PaymentMethod })
+  @IsEnum(PaymentMethod, { message: 'Forma de pagamento inválida' })
+  method: PaymentMethod;
+
+  @ApiPropertyOptional({ description: 'Em qual conta o dinheiro entrou. Em espécie é sempre a gaveta.' })
+  @IsOptional()
+  @EmptyToUndefined()
+  @IsString()
+  accountId?: string;
+
+  @ApiPropertyOptional({ example: 500, description: 'Em dinheiro: quanto a cliente entregou, para calcular o troco.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Valor entregue inválido' })
+  @IsPositive({ message: 'Valor entregue deve ser maior que zero' })
+  amountTendered?: number;
+}
+
 export class DeliverDto {
   @ApiPropertyOptional({ description: 'Quem retirou a peça' })
   @IsOptional()
   @IsString()
   @MaxLength(120)
   receivedBy?: string;
+
+  @ApiPropertyOptional({ type: DeliverPaymentDto, description: 'Recebimento registrado junto com a entrega.' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DeliverPaymentDto)
+  payment?: DeliverPaymentDto;
 
   @ApiPropertyOptional({
     description: 'Confirma a entrega mesmo havendo saldo devedor. Sem isso, a entrega é recusada.',
@@ -197,6 +233,12 @@ export class ListWorkOrdersDto {
   @IsString()
   @MaxLength(120)
   search?: string;
+
+  @ApiPropertyOptional({ description: 'Todas as peças de uma cliente — é o que o balcão pergunta.' })
+  @IsOptional()
+  @EmptyToUndefined()
+  @IsString()
+  customerId?: string;
 
   @ApiPropertyOptional({ enum: WorkOrderStatus })
   @IsOptional()

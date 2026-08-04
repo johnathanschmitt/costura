@@ -5,6 +5,7 @@ import { useAuthStore } from './store/auth.store';
 import Layout from './components/Layout/Layout';
 import LoginPage from './pages/Login/LoginPage';
 import DashboardPage from './pages/Dashboard/DashboardPage';
+import CounterPage from './pages/Counter/CounterPage';
 import CustomersPage from './pages/Customers/CustomersPage';
 import CustomerFormPage from './pages/Customers/CustomerFormPage';
 import QuotesPage from './pages/Quotes/QuotesPage';
@@ -59,8 +60,13 @@ export default function App() {
                 <Routes>
                   <Route index element={<Navigate to="/dashboard" replace />} />
                   <Route path="dashboard" element={<DashboardPage />} />
+                  <Route path="balcao" element={<CounterPage />} />
                   <Route path="customers" element={<CustomersPage />} />
                   <Route path="customers/new" element={<CustomerFormPage />} />
+                  {/* A ficha da cliente atende nos dois endereços: /:id, que é
+                      para onde a lista aponta, e /:id/edit, que é o link antigo
+                      guardado por aí. Sem o primeiro, abrir a ficha dava 404. */}
+                  <Route path="customers/:id" element={<CustomerFormPage />} />
                   <Route path="customers/:id/edit" element={<CustomerFormPage />} />
                   <Route path="quotes" element={<QuotesPage />} />
                   <Route path="quotes/new" element={<QuoteFormPage />} />

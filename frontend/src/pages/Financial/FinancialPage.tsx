@@ -7,37 +7,48 @@ import CashRegisterSection from './CashRegisterSection';
 import CashHistorySection from './CashHistorySection';
 import AccountsSection from './AccountsSection';
 import ReturnsSection from './ReturnsSection';
-import ReceivablesSection from './ReceivablesSection';
-import PayablesSection from './PayablesSection';
+import AccountsMonthSection from './AccountsMonthSection';
 import CashFlowSection from './CashFlowSection';
-import DreSection from './DreSection';
 import MonthlyResultSection from './MonthlyResultSection';
 import DistributionSection from './DistributionSection';
 import { fmt } from './format';
 
 /**
  * O módulo é dividido em duas naturezas de trabalho: o que se faz todo dia
- * (caixa e contas) e o que se olha de vez em quando para decidir (resultado,
- * divisão, fluxo, DRE). Antes eram sete abas no mesmo nível, guardadas só na
- * memória do componente — a URL era sempre /financial, então atualizar a página
- * ou voltar jogava a usuária de volta no caixa.
+ * (caixa e contas) e o que se olha de vez em quando para decidir.
+ *
+ * O nome de cada aba é a pergunta que ela responde, não o artefato contábil que
+ * a origina: "DRE" não diz nada para quem costura, e "Retorno por Peça" não diz
+ * que ali mora a resposta de "estou cobrando barato?". Eram onze abas para
+ * cinco perguntas; são sete.
  */
 const DAILY = [
   { path: '', label: 'Painel' },
   { path: 'caixa', label: 'Caixa' },
-  { path: 'caixas', label: 'Histórico de Caixas' },
-  { path: 'a-receber', label: 'A Receber' },
-  { path: 'a-pagar', label: 'A Pagar' },
+  { path: 'contas-do-mes', label: 'Contas do mês' },
 ];
 
 const ANALYSIS = [
-  { path: 'contas', label: 'Contas e Saldos' },
-  { path: 'resultado', label: 'Resultado do Mês' },
-  { path: 'divisao', label: 'Divisão' },
-  { path: 'fluxo', label: 'Fluxo de Caixa' },
-  { path: 'dre', label: 'DRE' },
-  { path: 'retorno', label: 'Retorno por Peça' },
+  { path: 'resultado', label: 'Resultado' },
+  { path: 'onde-esta-o-dinheiro', label: 'Onde está o dinheiro' },
+  { path: 'previsao', label: 'Previsão' },
+  { path: 'quanto-rende', label: 'Quanto rende cada peça' },
+  { path: 'divisao', label: 'Divisão do mês' },
 ];
+
+/**
+ * Endereços antigos continuam funcionando: são links guardados nos favoritos e
+ * em conversas, e quebrar um deles é fazer a usuária procurar de novo o que ela
+ * já sabia onde ficava.
+ */
+const MOVED: Record<string, string> = {
+  'a-receber': 'contas-do-mes',
+  'a-pagar': 'contas-do-mes?lado=pagar',
+  contas: 'onde-esta-o-dinheiro',
+  fluxo: 'previsao',
+  dre: 'resultado',
+  retorno: 'quanto-rende',
+};
 
 export default function FinancialPage() {
   const navigate = useNavigate();
@@ -67,18 +78,18 @@ export default function FinancialPage() {
     <Box>
       <Typography variant="h5" mb={2}>Financeiro</Typography>
 
-      {/* No painel os atrasados já aparecem com nome e valor; repetir o aviso
-          em cima deles seria dizer duas vezes a mesma coisa. */}
+      {/* No painel a fila de trabalho já lista os vencidos com valor e botão;
+          repetir o aviso em cima dela seria dizer duas vezes a mesma coisa. */}
       {current !== '' && (overdueRec > 0 || overduePay > 0) && (
         <Stack spacing={1} mb={2}>
           {overdueRec > 0 && (
-            <Alert severity="warning" action={<Button size="small" onClick={() => go('a-receber')}>Ver contas</Button>}>
+            <Alert severity="warning" action={<Button size="small" onClick={() => go('contas-do-mes')}>Ver contas</Button>}>
               {overdueRec} conta(s) a receber vencida(s), somando{' '}
               <strong>{fmt(summary.receivablesOverdue.amount)}</strong>.
             </Alert>
           )}
           {overduePay > 0 && (
-            <Alert severity="error" action={<Button size="small" onClick={() => go('a-pagar')}>Ver contas</Button>}>
+            <Alert severity="error" action={<Button size="small" onClick={() => go('contas-do-mes?lado=pagar')}>Ver contas</Button>}>
               {overduePay} conta(s) a pagar vencida(s), somando{' '}
               <strong>{fmt(summary.payablesOverdue.amount)}</strong>.
             </Alert>
@@ -102,8 +113,7 @@ export default function FinancialPage() {
                 key={t.path}
                 value={t.path}
                 label={
-                  t.path === 'a-receber' ? label(t.label, overdueRec)
-                    : t.path === 'a-pagar' ? label(t.label, overduePay)
+                  t.path === 'contas-do-mes' ? label(t.label, overdueRec + overduePay)
                     : t.path === 'caixa'
                       ? <Badge variant="dot" color="success" invisible={!summary?.cashRegisterOpen} sx={{ '& .MuiBadge-dot': { right: -6 } }}>{t.label}</Badge>
                       : t.label
@@ -130,15 +140,18 @@ export default function FinancialPage() {
       <Routes>
         <Route index element={<OverviewSection />} />
         <Route path="caixa" element={<CashRegisterSection />} />
+        {/* Consulta esporádica: chega-se aqui pelo link dentro do Caixa, não
+            por uma aba disputando espaço todo dia. */}
         <Route path="caixas" element={<CashHistorySection />} />
-        <Route path="a-receber" element={<ReceivablesSection />} />
-        <Route path="a-pagar" element={<PayablesSection />} />
-        <Route path="contas" element={<AccountsSection />} />
+        <Route path="contas-do-mes" element={<AccountsMonthSection />} />
+        <Route path="onde-esta-o-dinheiro" element={<AccountsSection />} />
         <Route path="resultado" element={<MonthlyResultSection />} />
         <Route path="divisao" element={<DistributionSection />} />
-        <Route path="fluxo" element={<CashFlowSection />} />
-        <Route path="dre" element={<DreSection />} />
-        <Route path="retorno" element={<ReturnsSection />} />
+        <Route path="previsao" element={<CashFlowSection />} />
+        <Route path="quanto-rende" element={<ReturnsSection />} />
+        {Object.entries(MOVED).map(([from, to]) => (
+          <Route key={from} path={from} element={<Navigate to={`/financial/${to}`} replace />} />
+        ))}
         <Route path="*" element={<Navigate to="/financial" replace />} />
       </Routes>
     </Box>

@@ -98,7 +98,15 @@ export default function QuotesPage() {
             )) : data?.data?.map((q: any) => {
               const s = STATUS_LABELS[q.status] ?? { label: q.status, color: 'default' };
               return (
-                <TableRow key={q.id} hover>
+                /* Clicar em qualquer lugar da linha abre o orçamento — é o que
+                   se tenta primeiro numa lista, e no celular poupa mirar num
+                   ícone de 20px. */
+                <TableRow
+                  key={q.id}
+                  hover
+                  sx={{ cursor: 'pointer' }}
+                  onClick={() => navigate(`/quotes/${q.id}/edit`)}
+                >
                   <TableCell>{q.number}</TableCell>
                   <TableCell>{q.customer?.name}</TableCell>
                   <TableCell><Chip label={s.label} color={s.color} size="small" /></TableCell>
@@ -110,14 +118,17 @@ export default function QuotesPage() {
                           size="small"
                           variant="outlined"
                           color="primary"
-                          onClick={() => navigate(`/work-orders/${q.workOrder.id}/edit`)}
+                          onClick={e => {
+                            e.stopPropagation();
+                            navigate(`/work-orders/${q.workOrder.id}/edit`);
+                          }}
                           sx={{ cursor: 'pointer' }}
                         />
                       : '—'}
                   </TableCell>
                   <TableCell>{fmt(q.total)}</TableCell>
                   <TableCell>{q.validUntil ? dayjs(q.validUntil).format('DD/MM/YYYY') : '—'}</TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" onClick={e => e.stopPropagation()}>
                     {q.status === 'SENT' && (
                       <IconButton size="small" color="success" onClick={() => approveMutation.mutate(q.id)} title="Aprovar">
                         <CheckCircle fontSize="small" />

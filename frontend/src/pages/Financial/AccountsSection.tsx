@@ -3,16 +3,21 @@ import {
   Box, Card, CardContent, Typography, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, Chip, Button, Skeleton, IconButton, Tooltip, Dialog,
   DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel,
-  Select, MenuItem, Alert, Grid, FormControlLabel, Switch, Checkbox,
+  Select, MenuItem, Alert, Grid, FormControlLabel, Switch, Checkbox, TablePagination,
+  Stack,
 } from '@mui/material';
-import { Add, SwapHoriz, Edit, Delete, Receipt } from '@mui/icons-material';
+import {
+  Add, SwapHoriz, Edit, Delete, Receipt, Search, Download, ArrowUpward, ArrowDownward,
+} from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import MoneyField from '../../components/common/fields/MoneyField';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import api from '../../services/api';
 import { useToast } from '../../store/toast.store';
-import { apiError, fmt, toNumber } from './format';
+import { useFinancialPeriod } from '../../store/financialPeriod.store';
+import { useCompact } from './useCompact';
+import { apiError, fmt, METHOD_LABELS, toNumber } from './format';
 
 const KINDS = [
   { value: 'BANK', label: 'Banco' },
@@ -266,9 +271,16 @@ function StatementDialog({ account, onClose }: any) {
               {(data?.entries ?? []).length === 0 && (
                 <TableRow>
                   <TableCell colSpan={4}>
-                    <Typography variant="body2" color="text.secondary" py={2}>
-                      Nenhuma movimentação nesta conta ainda.
-                    </Typography>
+                    <Box sx={{ py: 3 }}>
+                      <Typography variant="body2" fontWeight={600} gutterBottom>
+                        Nenhuma movimentação nesta conta ainda.
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {isDrawer
+                          ? 'A gaveta se move quando você lança dinheiro no caixa, recebe em espécie ou faz uma sangria.'
+                          : 'Esta conta se move quando você recebe por Pix, cartão ou transferência escolhendo-a, ou transfere dinheiro para ela.'}
+                      </Typography>
+                    </Box>
                   </TableCell>
                 </TableRow>
               )}
@@ -311,6 +323,207 @@ function StatementDialog({ account, onClose }: any) {
 }
 
 /**
+ * Extrato de tudo que passou pelas contas no período.
+ *
+ * Morava no fim do Fluxo de Caixa, onde disputava a tela com a projeção — duas
+ * perguntas diferentes no mesmo lugar. "O que passou pela conta" é exatamente a
+ * pergunta desta tela.
+ */
+function MovementsBlock() {
+  const compact = useCompact();
+  const { from, to, setRange } = useFinancialPeriod();
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const [limit, setLimit] = useState(20);
+
+  const start = dayjs(from);
+  const end = dayjs(to);
+  const params = {
+    startDate: start.startOf('day').toISOString(),
+    endDate: end.endOf('day').toISOString(),
+  };
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['cash-flow', params.startDate, params.endDate, page, limit, search],
+    queryFn: () => api.get('/financial/cash-flow', {
+      params: { ...params, page: page + 1, limit, search: search || undefined },
+    }).then(r => r.data),
+  });
+
+  const exportCsv = async () => {
+    const res = await api.get('/financial/cash-flow/export', { params, responseType: 'blob' });
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `movimentacoes-${start.format('YYYY-MM-DD')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const entries = data?.entries ?? [];
+  const total = data?.entriesTotal ?? 0;
+
+  const shiftMonth = (delta: number) => {
+    const next = start.add(delta, 'month');
+    setRange(next.startOf('month').format('YYYY-MM-DD'), next.endOf('month').format('YYYY-MM-DD'));
+  };
+
+  return (
+    <Box mt={4}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
+        <Typography variant="subtitle1" fontWeight={600}>Movimentações</Typography>
+        <Button size="small" onClick={() => shiftMonth(-1)}>◀</Button>
+        <Typography variant="body2" color="text.secondary">
+          {start.format('DD/MM/YYYY')} a {end.format('DD/MM/YYYY')}
+        </Typography>
+        <Button size="small" onClick={() => shiftMonth(1)}>▶</Button>
+        <Box sx={{ flexGrow: 1 }} />
+        <TextField
+          size="small"
+          placeholder="Buscar por descrição, cliente ou categoria"
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(0); }}
+          InputProps={{ startAdornment: <Search fontSize="small" sx={{ mr: 1, color: 'text.disabled' }} /> }}
+          sx={{ minWidth: 300 }}
+        />
+        <Button variant="outlined" size="small" startIcon={<Download />} onClick={exportCsv}>
+          Exportar
+        </Button>
+      </Box>
+
+      {compact ? (
+        <Stack spacing={1}>
+          {isLoading && [0, 1, 2].map(i => <Skeleton key={i} variant="rounded" height={78} />)}
+          {!isLoading && entries.map((t: any) => (
+            <Paper key={`${t.source}-${t.id}`} variant="outlined" sx={{ p: 1.5 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" fontWeight={600}>{t.description}</Typography>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    {dayjs(t.date).format('DD/MM HH:mm')}
+                    {t.party && ` · ${t.party}`}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {[t.category, METHOD_LABELS[t.method] ?? t.method].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+                <Typography
+                  variant="body1"
+                  fontWeight={700}
+                  color={t.type === 'INCOME' ? 'success.main' : 'error.main'}
+                  sx={{ whiteSpace: 'nowrap' }}
+                >
+                  {t.type === 'INCOME' ? '+' : '−'} {fmt(t.amount)}
+                </Typography>
+              </Box>
+            </Paper>
+          ))}
+          {!isLoading && entries.length === 0 && (
+            <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
+              <Typography variant="body1" fontWeight={600} gutterBottom>
+                {search
+                  ? `Nada encontrado para "${search}" neste período.`
+                  : `Nenhuma movimentação entre ${start.format('DD/MM')} e ${end.format('DD/MM')}.`}
+              </Typography>
+              {!search && (
+                <Typography variant="body2" color="text.secondary">
+                  As entradas aparecem aqui quando você recebe uma conta ou lança uma venda no
+                  caixa; as saídas, quando você paga uma conta ou faz uma sangria.
+                </Typography>
+              )}
+            </Paper>
+          )}
+        </Stack>
+      ) : (
+      <TableContainer component={Paper} variant="outlined">
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Data</TableCell>
+              <TableCell>Descrição</TableCell>
+              <TableCell>Cliente / Fornecedor</TableCell>
+              <TableCell>Categoria</TableCell>
+              <TableCell>Forma</TableCell>
+              <TableCell align="right">Valor</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {isLoading ? Array.from({ length: 5 }).map((_, i) => (
+              <TableRow key={i}>{[1, 2, 3, 4, 5, 6].map(j => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
+            )) : entries.map((t: any) => (
+              <TableRow key={`${t.source}-${t.id}`} hover>
+                <TableCell>{dayjs(t.date).format('DD/MM HH:mm')}</TableCell>
+                <TableCell>
+                  {t.description}
+                  {t.source === 'CASH' && (
+                    <Tooltip title="Lançamento avulso do caixa, sem conta vinculada">
+                      <Chip label="avulso" size="small" variant="outlined" sx={{ ml: 1, height: 18, fontSize: 11 }} />
+                    </Tooltip>
+                  )}
+                </TableCell>
+                <TableCell>{t.party ?? '—'}</TableCell>
+                <TableCell>{t.category ?? '—'}</TableCell>
+                <TableCell>{METHOD_LABELS[t.method] ?? t.method}</TableCell>
+                <TableCell align="right">
+                  {/* O sinal e a cor já dizem entrada ou saída; a coluna "Tipo"
+                      com um chip era a terceira vez que a mesma coisa aparecia. */}
+                  <Typography
+                    variant="body2"
+                    fontWeight={600}
+                    color={t.type === 'INCOME' ? 'success.main' : 'error.main'}
+                    sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.3 }}
+                  >
+                    {t.type === 'INCOME'
+                      ? <ArrowUpward sx={{ fontSize: 14 }} />
+                      : <ArrowDownward sx={{ fontSize: 14 }} />}
+                    {fmt(t.amount)}
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ))}
+            {!isLoading && entries.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6}>
+                  <Box sx={{ textAlign: 'center', py: 4, px: 2 }}>
+                    <Typography variant="body1" fontWeight={600} gutterBottom>
+                      {search
+                        ? `Nada encontrado para "${search}" neste período.`
+                        : `Nenhuma movimentação entre ${start.format('DD/MM')} e ${end.format('DD/MM')}.`}
+                    </Typography>
+                    {!search && (
+                      <Typography variant="body2" color="text.secondary">
+                        As entradas aparecem aqui quando você recebe uma conta ou lança uma venda no
+                        caixa; as saídas, quando você paga uma conta ou faz uma sangria.
+                      </Typography>
+                    )}
+                  </Box>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        {/* Paginação para dez lançamentos é ruído; ela aparece quando a lista
+            realmente passa de uma página. */}
+        {total > limit && (
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            onPageChange={(_, p) => setPage(p)}
+            rowsPerPage={limit}
+            onRowsPerPageChange={e => { setLimit(Number(e.target.value)); setPage(0); }}
+            rowsPerPageOptions={[20, 50, 100, 200]}
+            labelRowsPerPage="Por página"
+            labelDisplayedRows={({ from: f, to: t, count }) => `${f}–${t} de ${count}`}
+          />
+        )}
+      </TableContainer>
+      )}
+    </Box>
+  );
+}
+
+/**
  * Onde o dinheiro está.
  *
  * Antes só a gaveta tinha saldo: o que entrava por Pix ou cartão virava um
@@ -320,6 +533,7 @@ function StatementDialog({ account, onClose }: any) {
 export default function AccountsSection() {
   const qc = useQueryClient();
   const toast = useToast();
+  const compact = useCompact();
   const [dialog, setDialog] = useState<{ open: boolean; account: any }>({ open: false, account: null });
   const [transferOpen, setTransferOpen] = useState(false);
   const [statement, setStatement] = useState<any>(null);
@@ -344,6 +558,10 @@ export default function AccountsSection() {
   const operational = rows.filter(a => a.active && a.kind !== 'RESERVE');
   const total = operational.reduce((s, a) => s + toNumber(a.balance), 0);
   const reserve = rows.find(a => a.kind === 'RESERVE');
+
+  const pendingReconcile = rows.reduce((s, a) => s + (a.unreconciled ?? 0), 0);
+  const toReconcile = rows.filter(a => a.unreconciled > 0)
+    .sort((a, b) => b.unreconciled - a.unreconciled)[0];
 
   return (
     <Box>
@@ -381,6 +599,54 @@ export default function AccountsSection() {
         </Button>
       </Box>
 
+      {compact ? (
+        <Stack spacing={1}>
+          {isLoading && [0, 1].map(i => <Skeleton key={i} variant="rounded" height={96} />)}
+          {rows.map(a => (
+            <Paper key={a.id} variant="outlined" sx={{ p: 1.5, opacity: a.active ? 1 : 0.5 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" fontWeight={600}>
+                    {a.name}
+                    {a.isDefault && <Chip size="small" label="padrão" sx={{ ml: 1 }} />}
+                    {!a.active && <Chip size="small" label="inativa" sx={{ ml: 1 }} />}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {KIND_LABEL[a.kind] ?? a.kind}
+                  </Typography>
+                </Box>
+                <Box sx={{ textAlign: 'right' }}>
+                  <Typography variant="h6" fontWeight={700}>{fmt(a.balance)}</Typography>
+                  {toNumber(a.pending) > 0 && (
+                    <Typography variant="caption" color="text.secondary">
+                      + {fmt(a.pending)} a caminho
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
+                {a.kind === 'CASH_DRAWER' ? (
+                  <Typography variant="caption" color="text.secondary">
+                    conferida no fechamento do caixa
+                  </Typography>
+                ) : a.unreconciled > 0 ? (
+                  <Button size="small" color="warning" onClick={() => setStatement(a)}>
+                    {a.unreconciled} por conferir
+                  </Button>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">tudo conferido</Typography>
+                )}
+                <Box sx={{ flexGrow: 1 }} />
+                <IconButton size="small" onClick={() => setStatement(a)}><Receipt fontSize="small" /></IconButton>
+                <IconButton size="small" onClick={() => setDialog({ open: true, account: a })}><Edit fontSize="small" /></IconButton>
+                {!a.isSystem && (
+                  <IconButton size="small" onClick={() => setRemoveTarget(a)}><Delete fontSize="small" /></IconButton>
+                )}
+              </Box>
+            </Paper>
+          ))}
+        </Stack>
+      ) : (
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
@@ -388,12 +654,13 @@ export default function AccountsSection() {
               <TableCell>Conta</TableCell>
               <TableCell>Tipo</TableCell>
               <TableCell align="right">Saldo</TableCell>
+              <TableCell>Confere com o banco?</TableCell>
               <TableCell align="right">Ações</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {isLoading && Array.from({ length: 3 }).map((_, i) => (
-              <TableRow key={i}>{[1, 2, 3, 4].map(j => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
+              <TableRow key={i}>{[1, 2, 3, 4, 5].map(j => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
             ))}
             {rows.map(a => (
               <TableRow key={a.id} hover sx={{ opacity: a.active ? 1 : 0.5 }}>
@@ -402,14 +669,7 @@ export default function AccountsSection() {
                   {a.isDefault && <Chip size="small" label="padrão" sx={{ ml: 1 }} />}
                   {!a.active && <Chip size="small" label="inativa" sx={{ ml: 1 }} />}
                 </TableCell>
-                <TableCell>
-                  {KIND_LABEL[a.kind] ?? a.kind}
-                  {a.reconciledUntil && (
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      conferido até {dayjs(a.reconciledUntil).format('DD/MM/YY')}
-                    </Typography>
-                  )}
-                </TableCell>
+                <TableCell>{KIND_LABEL[a.kind] ?? a.kind}</TableCell>
                 <TableCell align="right">
                   <Typography variant="body2" fontWeight={700}>{fmt(a.balance)}</Typography>
                   {toNumber(a.pending) > 0 && (
@@ -418,6 +678,25 @@ export default function AccountsSection() {
                         + {fmt(a.pending)} a caminho
                       </Typography>
                     </Tooltip>
+                  )}
+                </TableCell>
+                {/* A conferência vivia escondida em letra pequena dentro da
+                    coluna "Tipo", a dois cliques — o lugar errado para o que
+                    separa "o sistema acha que tem" de "o banco confirma". */}
+                <TableCell>
+                  {a.kind === 'CASH_DRAWER' ? (
+                    <Typography variant="caption" color="text.secondary">
+                      conferida contando o dinheiro, no fechamento
+                    </Typography>
+                  ) : a.unreconciled > 0 ? (
+                    <Button size="small" color="warning" onClick={() => setStatement(a)}>
+                      {a.unreconciled} por conferir
+                    </Button>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      tudo conferido
+                      {a.reconciledUntil && ` até ${dayjs(a.reconciledUntil).format('DD/MM/YY')}`}
+                    </Typography>
                   )}
                 </TableCell>
                 <TableCell align="right">
@@ -444,10 +723,27 @@ export default function AccountsSection() {
           </TableBody>
         </Table>
       </TableContainer>
+      )}
 
       <Typography variant="caption" color="text.secondary" display="block" mt={2}>
         A gaveta é calculada pelos lançamentos do caixa — é o mesmo valor conferido no fechamento.
       </Typography>
+
+      {/* Frase de fecho: a tela responde "onde está" e termina apontando o
+          próximo passo, em vez de deixar a usuária decidir sozinha o que fazer
+          com o que acabou de ler. */}
+      {pendingReconcile > 0 && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+          <Typography variant="body2">
+            <strong>{pendingReconcile}</strong> lançamento(s) ainda não foram conferidos com o banco.
+          </Typography>
+          <Button size="small" onClick={() => setStatement(toReconcile)}>
+            Conferir {toReconcile?.name} →
+          </Button>
+        </Box>
+      )}
+
+      <MovementsBlock />
 
       <AccountDialog
         open={dialog.open}

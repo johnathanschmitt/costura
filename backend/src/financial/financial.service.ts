@@ -360,13 +360,14 @@ export class FinancialService {
   async getReceivables(query: ListReceivablesDto) {
     await this.markOverdue();
     const {
-      page = 1, limit = 20, status, customerId, startDate, endDate, includeOverdue = true,
+      page = 1, limit = 20, status, customerId, category, startDate, endDate, includeOverdue = true,
     } = query;
 
     const where: Prisma.AccountReceivableWhereInput = {
       deletedAt: null,
       ...(status && { status }),
       ...(customerId && { customerId }),
+      ...(category && { category }),
       ...this.periodWhere(startDate, endDate, includeOverdue),
     };
     const openWhere: Prisma.AccountReceivableWhereInput = {
@@ -575,7 +576,7 @@ export class FinancialService {
       // depois: a taxa fica com a adquirente e o líquido só cai no prazo.
       const card = cardSettlement(amount, dto.method, await this.cardConfig());
 
-      await tx.payment.create({
+      const payment = await tx.payment.create({
         data: {
           type: 'RECEIVABLE',
           receivableId: rec.id,
@@ -594,7 +595,7 @@ export class FinancialService {
 
       const paidAmount = D(rec.paidAmount).plus(amount);
       const settled = paidAmount.gte(rec.amount);
-      return tx.accountReceivable.update({
+      const updated = await tx.accountReceivable.update({
         where: { id },
         data: {
           paidAmount,
@@ -603,6 +604,9 @@ export class FinancialService {
           paymentMethod: dto.method,
         },
       });
+      // A tela oferece "desfazer" logo depois da baixa; sem o id da baixa não
+      // há o que estornar sem antes ir procurar no histórico.
+      return { ...updated, paymentId: payment.id };
     });
   }
 
@@ -832,7 +836,7 @@ export class FinancialService {
         referenceType: 'ACCOUNT_PAYABLE',
       });
 
-      await tx.payment.create({
+      const payment = await tx.payment.create({
         data: {
           type: 'PAYABLE',
           payableId: pay.id,
@@ -850,7 +854,7 @@ export class FinancialService {
 
       const paidAmount = D(pay.paidAmount).plus(amount);
       const settled = paidAmount.gte(pay.amount);
-      return tx.accountPayable.update({
+      const updated = await tx.accountPayable.update({
         where: { id },
         data: {
           paidAmount,
@@ -859,6 +863,7 @@ export class FinancialService {
           paymentMethod: dto.method,
         },
       });
+      return { ...updated, paymentId: payment.id };
     });
   }
 
@@ -2456,9 +2461,16 @@ export class FinancialService {
     );
     const today = startOfToday();
 
+    // Vencimento de amanhã ainda é "hoje" para quem precisa se organizar: dá
+    // tempo de transferir o dinheiro antes de a conta virar atraso.
+    const soon = new Date(today);
+    soon.setDate(soon.getDate() + 1);
+    soon.setHours(23, 59, 59, 999);
+
     const [
       register, entries, previousEntries, committed,
       openReceivables, openPayables, overdue, fixedCost, hourly, accounts,
+      overduePayables, payablesDueSoon, deliveredUnpaid, partnerCount,
     ] = await Promise.all([
       this.getCurrentCashRegister(),
       realizedEntries(this.prisma, start, end),
@@ -2492,6 +2504,32 @@ export class FinancialService {
       this.getFixedCost(start, end),
       this.getHourlyRate(start, end),
       this.accounts.listWithBalances(),
+      this.prisma.accountPayable.aggregate({
+        where: { deletedAt: null, status: 'OVERDUE' },
+        _count: true,
+        _sum: { amount: true, paidAmount: true },
+      }),
+      this.prisma.accountPayable.findMany({
+        where: {
+          deletedAt: null,
+          status: { notIn: [...FinancialService.SETTLED, 'OVERDUE'] },
+          dueDate: { gte: today, lte: soon },
+        },
+        select: { id: true, description: true, supplier: true, dueDate: true, amount: true, paidAmount: true },
+        orderBy: { dueDate: 'asc' },
+        take: 3,
+      }),
+      // Rede de segurança da entrega: enquanto a baixa não acontecer no balcão,
+      // a fila pelo menos não deixa esquecer que a peça saiu sem pagar.
+      this.prisma.accountReceivable.findMany({
+        where: {
+          deletedAt: null,
+          status: { notIn: [...FinancialService.SETTLED] },
+          workOrder: { status: 'DELIVERED', deletedAt: null },
+        },
+        select: { amount: true, paidAmount: true },
+      }),
+      this.prisma.user.count({ where: { isPartner: true, deletedAt: null } }),
     ]);
 
     const month = totals(entries);
@@ -2510,7 +2548,141 @@ export class FinancialService {
 
     const days = (d: Date) => Math.floor((today.getTime() - new Date(d).setHours(0, 0, 0, 0)) / 86_400_000);
 
+    const overdueTotal = overdue.reduce((s, r) => s.plus(D(r.amount).minus(r.paidAmount)), ZERO);
+    const unpaidDelivered = deliveredUnpaid.reduce((s, r) => s.plus(D(r.amount).minus(r.paidAmount)), ZERO);
+
+    /**
+     * Fila de trabalho (§4). Não é resumo: é a lista do que precisa de uma ação
+     * hoje, e cada item sabe para onde levar. Quem esquece de abrir a tela não
+     * cobra ninguém naquela semana, e aqui não há uma segunda pessoa lembrando.
+     * Item só entra quando é verdade — a fila vazia some do painel.
+     */
+    const todo: {
+      kind: string;
+      severity: 'warning' | 'info';
+      count: number;
+      amount: Prisma.Decimal;
+      label: string | null;
+      action: string;
+      to: string;
+      /** Detalhamento do item, quando ele é uma lista de coisas menores. */
+      sub?: { key: string; label: string; to: string }[];
+    }[] = [];
+
+    if (overdue.length > 0) {
+      todo.push({
+        kind: 'RECEIVABLES_OVERDUE',
+        severity: 'warning',
+        count: overdue.length,
+        amount: overdueTotal,
+        label: null,
+        action: 'cobrar',
+        to: '/financial/contas-do-mes',
+      });
+    }
+
+    // Caixa aberto num dia anterior é caixa que ninguém fechou: o esperado na
+    // gaveta deixa de bater e o fechamento do dia seguinte nasce errado.
+    if (register && new Date(register.openedAt) < today) {
+      todo.push({
+        kind: 'CASH_REGISTER_STALE',
+        severity: 'warning',
+        count: days(register.openedAt),
+        amount: register.expectedBalance,
+        label: register.openedAt.toISOString(),
+        action: 'fechar',
+        to: '/financial/caixa',
+      });
+    }
+
+    if (overduePayables._count > 0) {
+      todo.push({
+        kind: 'PAYABLES_OVERDUE',
+        severity: 'warning',
+        count: overduePayables._count,
+        amount: D(overduePayables._sum.amount ?? 0).minus(overduePayables._sum.paidAmount ?? 0),
+        label: null,
+        action: 'pagar',
+        to: '/financial/contas-do-mes?lado=pagar',
+      });
+    }
+
+    for (const p of payablesDueSoon) {
+      todo.push({
+        kind: 'PAYABLE_DUE_SOON',
+        severity: 'info',
+        count: days(p.dueDate) === 0 ? 0 : -days(p.dueDate),
+        amount: D(p.amount).minus(p.paidAmount),
+        label: p.supplier ?? p.description,
+        action: 'pagar',
+        to: '/financial/contas-do-mes?lado=pagar',
+      });
+    }
+
+    if (deliveredUnpaid.length > 0) {
+      todo.push({
+        kind: 'DELIVERED_UNPAID',
+        severity: 'info',
+        count: deliveredUnpaid.length,
+        amount: unpaidDelivered,
+        label: null,
+        action: 'ver',
+        to: '/financial/contas-do-mes',
+      });
+    }
+
+    /**
+     * Configuração que falta para os números pararem de mentir. Sem custo fixo
+     * lançado, por exemplo, o painel diz "custo fixo coberto" com R$ 0,00 — uma
+     * resposta errada com cara de certa, que é pior do que não responder.
+     */
+    const business = await this.prisma.businessInfo.findFirst();
+    const setup: { key: string; label: string; to: string }[] = [];
+
+    if (fixedCost.amount.lte(0)) {
+      setup.push({
+        key: 'FIXED_COST',
+        label: 'Dizer quais categorias de despesa são custo fixo',
+        to: '/settings#categorias',
+      });
+    }
+    if (business?.targetHourlyRate === null || business?.targetHourlyRate === undefined) {
+      setup.push({
+        key: 'HOURLY_TARGET',
+        label: 'Definir a meta de ganho por hora',
+        to: '/settings#financeiro',
+      });
+    }
+    if (!available.some(a => a.kind !== 'CASH_DRAWER')) {
+      setup.push({
+        key: 'BANK_ACCOUNT',
+        label: 'Cadastrar a conta do banco',
+        to: '/financial/onde-esta-o-dinheiro',
+      });
+    }
+    if (partnerCount === 0) {
+      setup.push({
+        key: 'PARTNERS',
+        label: 'Marcar quem divide o resultado',
+        to: '/settings#usuarios',
+      });
+    }
+
+    if (setup.length > 0) {
+      todo.push({
+        kind: 'SETUP_PENDING',
+        severity: 'info',
+        count: setup.length,
+        amount: ZERO,
+        label: null,
+        action: 'ver quais',
+        to: setup[0].to,
+        sub: setup,
+      });
+    }
+
     return {
+      todo,
       money: {
         accounts: available.map(a => ({
           id: a.id, name: a.name, kind: a.kind, balance: a.balance, pending: a.pending,
@@ -2527,6 +2699,19 @@ export class FinancialService {
         committedItems: committed.items,
         // O que sobra depois de tirar o que ainda é obrigação.
         free: totalAvailable.minus(committed.amount),
+        /**
+         * A pergunta que não estava em tela nenhuma: posso tirar dinheiro este
+         * mês? As peças da conta já existiam espalhadas pelo painel; o que
+         * faltava era fazer a conta. A reserva do ateliê não entra porque já
+         * está fora do disponível.
+         */
+        safeToWithdraw: {
+          amount: totalAvailable.minus(committed.amount).minus(toPay),
+          available: totalAvailable,
+          committed: committed.amount,
+          payables: toPay,
+          payablesUntil: end,
+        },
       },
       month: {
         key: this.monthBounds().key,
@@ -2555,11 +2740,11 @@ export class FinancialService {
           ? ZERO
           : fixedCost.amount.minus(month.income),
         hourlyRate: hourly.rate,
-        targetHourlyRate: (await this.prisma.businessInfo.findFirst())?.targetHourlyRate ?? null,
+        targetHourlyRate: business?.targetHourlyRate ?? null,
         deliveredWithoutHours: hourly.withoutHours,
       },
       overdue: {
-        total: overdue.reduce((s, r) => s.plus(D(r.amount).minus(r.paidAmount)), ZERO),
+        total: overdueTotal,
         count: overdue.length,
         items: overdue.map(r => ({
           id: r.id,
@@ -2575,6 +2760,63 @@ export class FinancialService {
         id: register.id,
         openedAt: register.openedAt,
         expectedBalance: register.expectedBalance,
+      },
+    };
+  }
+
+  /**
+   * O histórico financeiro de uma cliente, para a ficha dela.
+   *
+   * É o que decide se pode fazer fiado — a decisão mais arriscada que o ateliê
+   * toma e a única para a qual o sistema não ajudava em nada. Os dados sempre
+   * existiram: faltava alguém perguntar.
+   */
+  async getCustomerFinancials(customerId: string) {
+    await this.markOverdue();
+    const today = startOfToday();
+
+    const receivables = await this.prisma.accountReceivable.findMany({
+      where: { customerId, deletedAt: null, status: { not: 'CANCELLED' } },
+      select: {
+        amount: true, paidAmount: true, status: true, dueDate: true, paidAt: true,
+        workOrderId: true,
+      },
+    });
+
+    const open = receivables.filter(r => r.status !== 'PAID');
+    const openAmount = open.reduce((s, r) => s.plus(D(r.amount).minus(r.paidAmount)), ZERO);
+    const overdue = open.filter(r => r.status === 'OVERDUE');
+    const oldestOverdue = overdue
+      .map(r => Math.floor((today.getTime() - new Date(r.dueDate).setHours(0, 0, 0, 0)) / 86_400_000))
+      .sort((a, b) => b - a)[0] ?? null;
+
+    /**
+     * Pontualidade: a média de dias entre o vencimento e o dia em que o dinheiro
+     * entrou, sobre as contas já quitadas. É a linha que muda a decisão — "já
+     * gastou X" não diz se ela paga.
+     */
+    const settled = receivables.filter(r => r.status === 'PAID' && r.paidAt);
+    const delays = settled.map(r =>
+      Math.round((new Date(r.paidAt!).getTime() - new Date(r.dueDate).getTime()) / 86_400_000));
+    const averageDelay = delays.length
+      ? Math.round(delays.reduce((s, d) => s + d, 0) / delays.length)
+      : null;
+
+    const spent = receivables.reduce((s, r) => s.plus(r.paidAmount), ZERO);
+    const pieces = new Set(receivables.map(r => r.workOrderId).filter(Boolean)).size;
+
+    return {
+      spent,
+      pieces,
+      open: {
+        amount: openAmount,
+        count: open.length,
+        overdueCount: overdue.length,
+        oldestOverdueDays: oldestOverdue,
+      },
+      punctuality: {
+        averageDelayDays: averageDelay,
+        sampleSize: delays.length,
       },
     };
   }

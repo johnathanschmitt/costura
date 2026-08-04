@@ -141,7 +141,7 @@ export default function CategoriesTab() {
     <Box>
       <Typography variant="h6" mb={0.5}>Categorias financeiras</Typography>
       <Typography variant="body2" color="text.secondary" mb={3}>
-        Alimentam os seletores de lançamento e o agrupamento do DRE.
+        Alimentam os seletores de lançamento e o agrupamento do Resultado.
       </Typography>
 
       <Grid container spacing={3}>
