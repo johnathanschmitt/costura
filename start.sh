@@ -141,6 +141,16 @@ if ! DOCKER_ERR="$(docker info 2>&1 >/dev/null)"; then
   fi
 fi
 
+# Os contêineres têm `restart: unless-stopped` e voltam sozinhos depois de um
+# reboot — mas só se o daemon do Docker também subir no boot. Sem isso, a
+# máquina reinicia e o sistema fica fora do ar até alguém entrar no servidor.
+if command -v systemctl >/dev/null 2>&1 \
+  && systemctl list-unit-files docker.service >/dev/null 2>&1 \
+  && [ "$(systemctl is-enabled docker.service 2>/dev/null || true)" != "enabled" ]; then
+  warn "O Docker não está habilitado no boot: se a máquina reiniciar, nada sobe sozinho. Corrija com:"
+  warn "  sudo systemctl enable docker"
+fi
+
 [ -f .env ] && export $(grep -v '^#' .env | grep -v '^$' | xargs) 2>/dev/null || true
 
 sep
