@@ -12,6 +12,13 @@ export class CreateCategoryDto {
   @ApiProperty({ enum: CategoryType })
   @IsEnum(CategoryType, { message: 'Tipo deve ser INCOME ou EXPENSE' })
   type: CategoryType;
+
+  @ApiPropertyOptional({
+    description: 'Despesa que se repete todo mês — entra no custo fixo do ateliê',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isFixed?: boolean;
 }
 
 export class UpdateCategoryDto {
@@ -25,6 +32,11 @@ export class UpdateCategoryDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional({ description: 'Marca a categoria como despesa fixa mensal' })
+  @IsOptional()
+  @IsBoolean()
+  isFixed?: boolean;
 }
 
 export class ListCategoriesDto {

@@ -25,7 +25,9 @@ const navItems = [
   { label: 'Ordens de Serviço', icon: <Assignment />, path: '/work-orders' },
   { label: 'Agenda', icon: <CalendarMonth />, path: '/schedule' },
   { label: 'Estoque', icon: <Inventory2 />, path: '/inventory' },
-  { label: 'Financeiro', icon: <AccountBalance />, path: '/financial' },
+  // O financeiro só aparece para quem tem permissão de leitura. Esconder é só
+  // UX: o backend recusa a chamada de quem não pode, de qualquer jeito.
+  { label: 'Financeiro', icon: <AccountBalance />, path: '/financial', permission: 'read:financial' },
   { label: 'Relatórios', icon: <BarChart />, path: '/reports' },
   { label: 'Configurações', icon: <Settings />, path: '/settings' },
   {
@@ -50,6 +52,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
+
+  /**
+   * Sessão antiga (gravada antes de as permissões existirem no login) não tem a
+   * lista: nesse caso o item aparece, e quem barra é o backend. Esconder um
+   * módulo de quem tem acesso seria pior do que mostrar um que dá 403.
+   */
+  const canSee = (item: { permission?: string }) =>
+    !item.permission || !user?.permissions || user.permissions.includes(item.permission);
 
   // Ao girar o aparelho ou redimensionar, o menu acompanha o formato da tela.
   useEffect(() => { setOpen(!isMobile); }, [isMobile]);
@@ -98,7 +108,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       >
         <Box sx={{ overflow: 'auto', py: 1 }}>
           <List dense>
-            {navItems.map(item => {
+            {navItems.filter(canSee).map(item => {
               const active = location.pathname.startsWith(item.path);
               if (item.children) {
                 return (

@@ -1,11 +1,14 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Permissions } from '../common/decorators/roles.decorator';
 import { CustomersService } from './customers.service';
 
 @ApiTags('customers')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Permissions('read:customers')
 @Controller('customers')
 export class CustomersController {
   constructor(private service: CustomersService) {}
@@ -26,18 +29,21 @@ export class CustomersController {
   }
 
   @ApiOperation({ summary: 'Criar cliente' })
+  @Permissions('update:customers')
   @Post()
   create(@Body() body: any) {
     return this.service.create(body);
   }
 
   @ApiOperation({ summary: 'Atualizar cliente' })
+  @Permissions('update:customers')
   @Put(':id')
   update(@Param('id') id: string, @Body() body: any) {
     return this.service.update(id, body);
   }
 
   @ApiOperation({ summary: 'Remover cliente' })
+  @Permissions('delete:customers')
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.service.remove(id);
@@ -50,6 +56,7 @@ export class CustomersController {
   }
 
   @ApiOperation({ summary: 'Salvar medidas do cliente' })
+  @Permissions('update:customers')
   @Post(':id/measurements')
   saveMeasurement(@Param('id') id: string, @Body() body: any) {
     return this.service.saveMeasurement(id, body);

@@ -34,6 +34,91 @@ sep()  { echo -e "${B}───────────────────�
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ── Dependências ─────────────────────────────────────────────────────────────
+#
+# Uma instalação interrompida deixa diretórios temporários dentro do
+# node_modules e o npm seguinte morre com ENOTEMPTY. Só que os metadados normais
+# do npm (.bin, .package-lock.json, .prisma) também começam com ponto: a
+# checagem antiga (`ls node_modules/.*-*`) casava com `.package-lock.json` e
+# apagava o node_modules inteiro em TODA execução, quando era só para atualizar.
+#
+# Agora nada é apagado por precaução: instala normalmente e, se o npm falhar
+# reclamando de resto de instalação, aí sim refaz do zero e tenta de novo.
+npm_install() {
+  local titulo="$1"; shift
+  local log=/tmp/atelie_npm.log
+
+  log "$titulo"
+  if NODE_ENV=development npm "$@" 2>&1 | tee "$log"; then
+    return 0
+  fi
+
+  if grep -qE "ENOTEMPTY|EEXIST|ENOENT: no such file or directory, rename" "$log"; then
+    warn "A instalação esbarrou em restos de uma instalação anterior — refazendo o node_modules do zero."
+    rm -rf node_modules
+    log "$titulo (segunda tentativa)"
+    NODE_ENV=development npm "$@" && return 0
+  fi
+
+  return 1
+}
+
+# ── Migrations ───────────────────────────────────────────────────────────────
+# O Prisma registra cada migration aplicada em _prisma_migrations, com o nome
+# da pasta como versão. Comparar essa tabela com as pastas do repositório diz
+# exatamente o que falta rodar — bem melhor do que "deu erro?" no texto de saída
+# ou contar tabelas, que não percebe um banco parado numa versão antiga.
+MIGRATIONS_DIR="backend/prisma/migrations"
+
+psql_db() {
+  docker exec atelie_postgres psql -U "${POSTGRES_USER:-atelie}" -d "${POSTGRES_DB:-atelie}" -tAc "$1" 2>/dev/null || true
+}
+
+# Versões versionadas no repositório, em ordem cronológica (o nome começa com timestamp).
+migrations_locais() {
+  local d
+  for d in "$MIGRATIONS_DIR"/*/; do
+    if [ -f "$d/migration.sql" ]; then basename "$d"; fi
+  done | sort
+}
+
+# Versões já registradas no banco. Sai vazio quando a tabela ainda não existe
+# (banco novo) ou quando o postgres não está no ar.
+migrations_aplicadas() {
+  psql_db "select migration_name from _prisma_migrations where finished_at is not null and rolled_back_at is null;" | sed '/^$/d' | sort
+}
+
+# No repositório e ainda não no banco.
+migrations_pendentes() {
+  comm -23 <(migrations_locais) <(migrations_aplicadas)
+}
+
+# No banco e não no repositório — código mais antigo que o banco.
+migrations_desconhecidas() {
+  comm -13 <(migrations_locais) <(migrations_aplicadas)
+}
+
+historico_de_migrations_existe() {
+  [ -n "$(psql_db "select to_regclass('public._prisma_migrations');")" ]
+}
+
+banco_tem_tabelas() {
+  local n
+  n="$(psql_db "select count(*) from information_schema.tables where table_schema='public';")"
+  [ "${n:-0}" -gt 0 ]
+}
+
+# Banco com tabelas mas sem histórico: o migrate deploy aborta (P3005) porque não
+# sabe o que já existe. Só o operador pode dizer quais versões já estão lá.
+aborta_se_banco_sem_historico() {
+  if ! historico_de_migrations_existe && banco_tem_tabelas; then
+    err "O banco tem tabelas mas nenhum histórico de migrations (_prisma_migrations).
+     O Prisma não consegue adivinhar em que versão ele está e recusa aplicar.
+     Marque como já aplicadas as versões que o banco tem, da mais antiga para a mais nova:
+$(migrations_locais | sed 's/^/       npx prisma migrate resolve --applied /')"
+  fi
+}
+
 # ── Pré-checagens ─────────────────────────────────────────────────────────────
 command -v docker >/dev/null 2>&1 || err "Docker não encontrado.
      Instale com:  curl -fsSL https://get.docker.com | sudo sh"
@@ -129,14 +214,8 @@ if [ "$MODE" = "prod" ]; then
       fi
     fi
 
-    # Restos de instalação interrompida (.pacote-XXXX) fazem o npm morrer com
-    # ENOTEMPTY; nesse caso o node_modules precisa ser refeito do zero.
-    if ls node_modules/.*-* >/dev/null 2>&1; then
-      warn "node_modules tem restos de uma instalação interrompida — refazendo do zero."
-      rm -rf node_modules
-    fi
-    log "Instalando dependências de build (pode demorar na primeira vez)..."
-    NODE_ENV=development npm ci --include=dev || err "npm ci falhou — veja o erro acima."
+    npm_install "Instalando dependências de build (pode demorar na primeira vez)..." \
+      ci --include=dev || err "npm ci falhou — veja o erro acima."
     for BIN in nest tsc vite; do
       [ -x "node_modules/.bin/$BIN" ] || err "$BIN continua ausente após o npm ci — build impossível."
     done
@@ -184,16 +263,40 @@ if [ "$MODE" = "prod" ]; then
     sleep 2
   done
 
-  # As migrations rodam no CMD do container do backend. Se ele não subiu, o
-  # banco fica sem tabela nenhuma e toda requisição responde 500 — vale checar
-  # em vez de anunciar "sistema em produção" em cima de um banco vazio.
-  TABELAS=$(docker exec atelie_postgres psql -U "${POSTGRES_USER:-atelie}" -d "${POSTGRES_DB:-atelie}" -tAc \
-    "select count(*) from information_schema.tables where table_schema='public';" 2>/dev/null || echo 0)
+  # As migrations rodam no CMD do container do backend, mas quando ele falha (ou
+  # sobe antes do banco aceitar conexão) o banco fica atrasado e as telas novas
+  # respondem 500 — antes o script anunciava "sistema em produção" mesmo assim.
+  # Aqui a versão do banco é lida de _prisma_migrations e o que faltar é aplicado.
+  PENDENTES="$(migrations_pendentes)"
+  DESCONHECIDAS="$(migrations_desconhecidas)"
 
-  if [ "${TABELAS:-0}" -lt 2 ]; then
-    err "O banco está sem tabelas — as migrations não rodaram.
-     O backend aplica as migrations ao subir, então ele provavelmente falhou:
-       docker compose logs backend"
+  if [ -n "$DESCONHECIDAS" ]; then
+    warn "O banco tem migrations que não existem neste código — ele está mais novo que o repositório:"
+    echo "$DESCONHECIDAS" | sed 's/^/       • /'
+    warn "Faça um git pull antes de seguir, ou o backend vai rodar contra um schema à frente dele."
+  fi
+
+  if [ -n "$PENDENTES" ]; then
+    aborta_se_banco_sem_historico
+    log "Migrations que faltam no banco:"
+    echo "$PENDENTES" | sed 's/^/    • /'
+    # Container avulso: o backend pode ter morrido justamente por causa disso.
+    docker compose run --rm --no-deps -T backend npx prisma migrate deploy \
+      || err "Falha ao aplicar as migrations — veja o erro acima.
+     Se alguma ficou marcada como falha, resolva antes de tentar de novo:
+       docker compose run --rm --no-deps backend npx prisma migrate resolve --rolled-back <versão>"
+
+    RESTANTES="$(migrations_pendentes)"
+    if [ -n "$RESTANTES" ]; then
+      err "Estas migrations continuam sem registro no banco:
+$(echo "$RESTANTES" | sed 's/^/       • /')"
+    fi
+    ok "Migrations aplicadas — banco na versão $(migrations_locais | tail -1)"
+
+    # O backend pode ter saído ao subir contra o banco desatualizado.
+    docker compose up -d backend >/dev/null || err "Falha ao reiniciar o backend."
+  else
+    ok "Banco já está na última migration ($(migrations_locais | tail -1))"
   fi
 
   # Banco vazio não tem usuário nenhum e ninguém consegue entrar. O bootstrap
@@ -274,16 +377,8 @@ for i in $(seq 1 45); do
 done
 
 # 3. Instala/atualiza dependências
-# Uma instalação interrompida deixa diretórios temporários (.pacote-XXXX) que
-# fazem o npm seguinte morrer com ENOTEMPTY. Nesse caso não dá para instalar
-# por cima: o node_modules precisa ser refeito.
-if ls node_modules/.*-* >/dev/null 2>&1; then
-  warn "node_modules tem restos de uma instalação interrompida — refazendo do zero."
-  rm -rf node_modules
-fi
-
-log "Instalando/atualizando dependências..."
-NODE_ENV=development npm install --include=dev || err "npm install falhou — veja o erro acima."
+npm_install "Instalando/atualizando dependências..." \
+  install --include=dev || err "npm install falhou — veja o erro acima."
 ok "Dependências atualizadas"
 
 # 4. Gera cliente Prisma
@@ -292,11 +387,37 @@ log "Gerando cliente Prisma..."
 ok "Cliente Prisma gerado"
 
 # 5. Migrations
-log "Aplicando migrations..."
-if (cd backend && npx prisma migrate deploy 2>&1 | tee /tmp/atelie_migrate.log | grep -q "error\|Error"); then
-  warn "Problema nas migrations — veja /tmp/atelie_migrate.log"
+# Compara as pastas do repositório com o que está registrado em _prisma_migrations:
+# aplica só o que falta e confere depois se entrou mesmo. O grep por "error" na
+# saída anterior tanto deixava passar falha quanto acusava erro em migration
+# cujo SQL tivesse a palavra.
+PENDENTES="$(migrations_pendentes)"
+DESCONHECIDAS="$(migrations_desconhecidas)"
+
+if [ -n "$DESCONHECIDAS" ]; then
+  warn "O banco tem migrations que não existem neste código (branch antiga ou revertida):"
+  echo "$DESCONHECIDAS" | sed 's/^/    • /'
+fi
+
+if [ -z "$PENDENTES" ]; then
+  ok "Banco já está na última migration ($(migrations_locais | tail -1))"
 else
-  ok "Migrations aplicadas"
+  aborta_se_banco_sem_historico
+  log "Aplicando migrations que faltam no banco:"
+  echo "$PENDENTES" | sed 's/^/    • /'
+  if (cd backend && npx prisma migrate deploy) > /tmp/atelie_migrate.log 2>&1; then
+    RESTANTES="$(migrations_pendentes)"
+    if [ -n "$RESTANTES" ]; then
+      warn "Estas continuam sem registro no banco — veja /tmp/atelie_migrate.log:"
+      echo "$RESTANTES" | sed 's/^/    • /'
+    else
+      ok "Migrations aplicadas — banco na versão $(migrations_locais | tail -1)"
+    fi
+  else
+    warn "prisma migrate deploy falhou:"
+    tail -n 15 /tmp/atelie_migrate.log | sed 's/^/    /'
+    warn "As telas que dependem das migrations pendentes vão responder 500."
+  fi
 fi
 
 # 6. Seed (opcional)

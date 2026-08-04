@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsEnum, IsNumber, IsOptional, IsPositive, IsString, MaxLength, Min,
+  IsEnum, IsNumber, IsObject, IsOptional, IsPositive, IsString, MaxLength, Min,
 } from 'class-validator';
 import { TransactionType } from '@prisma/client';
 
@@ -28,6 +28,14 @@ export class CloseCashRegisterDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Valor contado inválido' })
   @Min(0, { message: 'Valor contado não pode ser negativo' })
   countedBalance: number;
+
+  @ApiPropertyOptional({
+    description: 'Quantas cédulas de cada valor foram contadas: { "100": 3, "50": 2 }',
+    example: { '100': 3, '50': 2, '10': 4 },
+  })
+  @IsOptional()
+  @IsObject({ message: 'Contagem por cédula inválida' })
+  countBreakdown?: Record<string, number>;
 
   @ApiPropertyOptional({ description: 'Justificativa — obrigatória quando há divergência' })
   @IsOptional()

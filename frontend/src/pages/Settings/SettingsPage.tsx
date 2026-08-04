@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box, Tabs, Tab, Typography } from '@mui/material';
-import { Group, Shield, Person, History, Store, Category, WhatsApp } from '@mui/icons-material';
+import { Group, Shield, Person, History, Store, Category, WhatsApp, Savings } from '@mui/icons-material';
+import FinancialSettingsTab from './FinancialSettingsTab';
 import UsersTab from './UsersTab';
 import RolesTab from './RolesTab';
 import ProfileTab from './ProfileTab';
@@ -27,6 +28,7 @@ export default function SettingsPage() {
           <Tab icon={<Shield fontSize="small" />} iconPosition="start" label="Perfis" />
           <Tab icon={<Person fontSize="small" />} iconPosition="start" label="Minha conta" />
           <Tab icon={<Category fontSize="small" />} iconPosition="start" label="Categorias" />
+          <Tab icon={<Savings fontSize="small" />} iconPosition="start" label="Financeiro" />
           <Tab icon={<WhatsApp fontSize="small" />} iconPosition="start" label="Mensagem WhatsApp" />
           <Tab icon={<History fontSize="small" />} iconPosition="start" label="Auditoria" />
         </Tabs>
@@ -36,8 +38,9 @@ export default function SettingsPage() {
       <TabPanel value={tab} index={2}><RolesTab /></TabPanel>
       <TabPanel value={tab} index={3}><ProfileTab /></TabPanel>
       <TabPanel value={tab} index={4}><CategoriesTab /></TabPanel>
-      <TabPanel value={tab} index={5}><WhatsAppTemplateTab /></TabPanel>
-      <TabPanel value={tab} index={6}><AuditTab /></TabPanel>
+      <TabPanel value={tab} index={5}><FinancialSettingsTab /></TabPanel>
+      <TabPanel value={tab} index={6}><WhatsAppTemplateTab /></TabPanel>
+      <TabPanel value={tab} index={7}><AuditTab /></TabPanel>
     </Box>
   );
 }

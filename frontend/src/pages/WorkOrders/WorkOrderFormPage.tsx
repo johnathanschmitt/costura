@@ -4,7 +4,9 @@ import {
   Breadcrumbs, Link, Alert, Chip, Select, MenuItem, FormControl, InputLabel,
   Stepper, Step, StepLabel,
 } from '@mui/material';
-import { Save, ArrowBack, PlayArrow, Done, LocalShipping, RequestQuote, Receipt } from '@mui/icons-material';
+import {
+  Save, ArrowBack, PlayArrow, Done, LocalShipping, RequestQuote, Receipt, Block,
+} from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatePicker } from '@mui/x-date-pickers';
@@ -18,6 +20,7 @@ import AttachmentsCard from '../../components/common/AttachmentsCard';
 import { useToast } from '../../store/toast.store';
 import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
 import DeliverDialog from './DeliverDialog';
+import CancelDialog from './CancelDialog';
 import PieceMeasurements from './PieceMeasurements';
 import ProgressCard from './ProgressCard';
 import MaterialsCard from './MaterialsCard';
@@ -56,6 +59,7 @@ export default function WorkOrderFormPage() {
   const [form, setForm] = useState<WOForm>(EMPTY);
   const [error, setError] = useState('');
   const [deliverOpen, setDeliverOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
 
   const { data: existing } = useQuery({
     queryKey: ['work-order', id],
@@ -173,6 +177,15 @@ export default function WorkOrderFormPage() {
         </Typography>
       </Breadcrumbs>
 
+      {existing?.status === 'CANCELLED' && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <strong>OS cancelada</strong>
+          {existing.cancelledAt && ` em ${dayjs(existing.cancelledAt).format('DD/MM/YYYY')}`}
+          {existing.cancelledBy?.name && ` por ${existing.cancelledBy.name}`}
+          {existing.cancelReason && <> — {existing.cancelReason}</>}
+        </Alert>
+      )}
+
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Button size="small" startIcon={<ArrowBack />} onClick={() => navigate('/work-orders')}>Voltar</Button>
@@ -222,6 +235,12 @@ export default function WorkOrderFormPage() {
             <Button size="small" variant="outlined" startIcon={<Receipt />}
               onClick={() => navigate(`/work-orders/${id}/receipt`)}>
               Recibo
+            </Button>
+          )}
+          {isEdit && existing?.status !== 'DELIVERED' && existing?.status !== 'CANCELLED' && (
+            <Button size="small" variant="outlined" color="warning" startIcon={<Block />}
+              onClick={() => setCancelOpen(true)}>
+              Cliente desistiu
             </Button>
           )}
           {isActive && (
@@ -439,6 +458,12 @@ export default function WorkOrderFormPage() {
           </Grid>
         )}
       </Grid>
+
+      <CancelDialog
+        workOrder={cancelOpen ? existing : null}
+        onClose={() => setCancelOpen(false)}
+        onCancelled={() => qc.invalidateQueries({ queryKey: ['work-order', id] })}
+      />
 
       <DeliverDialog
         workOrder={deliverOpen ? existing : null}

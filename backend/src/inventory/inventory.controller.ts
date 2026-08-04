@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Permissions } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { InventoryService } from './inventory.service';
 import {
@@ -10,7 +12,8 @@ import {
 
 @ApiTags('inventory')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Permissions('read:inventory')
 @Controller('inventory')
 export class InventoryController {
   constructor(private service: InventoryService) {}
@@ -34,18 +37,21 @@ export class InventoryController {
   }
 
   @ApiOperation({ summary: 'Registrar entrada de material comprado' })
+  @Permissions('update:inventory')
   @Post('entries')
   registerEntry(@Body() dto: CreateEntryDto, @CurrentUser() user: any) {
     return this.service.registerEntry(dto, user?.id);
   }
 
   @ApiOperation({ summary: 'Registrar baixa de material' })
+  @Permissions('update:inventory')
   @Post('exits')
   registerExit(@Body() dto: CreateExitDto, @CurrentUser() user: any) {
     return this.service.registerExit(dto, user?.id);
   }
 
   @ApiOperation({ summary: 'Ajustar saldo pela contagem física' })
+  @Permissions('update:inventory')
   @Post('adjustments')
   adjust(@Body() dto: AdjustStockDto, @CurrentUser() user: any) {
     return this.service.adjust(dto, user?.id);
@@ -70,12 +76,14 @@ export class InventoryController {
   }
 
   @ApiOperation({ summary: 'Fechar inventário com a contagem física' })
+  @Permissions('update:inventory')
   @Post('counts')
   closeCount(@Body() dto: CloseCountDto, @CurrentUser() user: any) {
     return this.service.closeCount(dto, user?.id);
   }
 
   @ApiOperation({ summary: 'Definir estoque mínimo e localização do produto' })
+  @Permissions('update:inventory')
   @Patch(':productId/settings')
   setMinQuantity(@Param('productId') productId: string, @Body() dto: SetMinQuantityDto) {
     return this.service.setMinQuantity(productId, dto);

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { realizedEntries, totals } from '../financial/realized';
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -12,6 +13,7 @@ export class ReportsService {
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
     const [
       totalCustomers,
@@ -29,10 +31,8 @@ export class ReportsService {
         where: { status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } },
         _sum: { amount: true },
       }),
-      this.prisma.accountReceivable.aggregate({
-        where: { status: 'PAID', paidAt: { gte: startOfMonth } },
-        _sum: { paidAmount: true },
-      }),
+      // Mesma conta do módulo financeiro: o que entrou de dinheiro no mês.
+      realizedEntries(this.prisma, startOfMonth, endOfMonth).then(e => totals(e).income),
       this.prisma.schedule.findMany({
         where: { deletedAt: null, startAt: { gte: startOfDay, lte: endOfDay } },
         include: { customer: { select: { name: true } } },
@@ -61,7 +61,7 @@ export class ReportsService {
       totalCustomers,
       openWorkOrders,
       pendingReceivables: pendingReceivables._sum.amount ?? 0,
-      monthRevenue: monthRevenue._sum.paidAmount ?? 0,
+      monthRevenue,
       todaySchedules,
       recentWorkOrders,
       lowStockCount,
@@ -69,71 +69,57 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Receita mês a mês do ano, pela data de cada pagamento — uma venda parcelada
+   * aparece em cada mês em que uma parcela foi paga, e não inteira no mês da
+   * última. Inclui a venda avulsa lançada direto no caixa.
+   */
   async getRevenueByMonth(year: number) {
     const start = new Date(year, 0, 1);
-    const end = new Date(year, 11, 31, 23, 59, 59);
+    const end = new Date(year, 11, 31, 23, 59, 59, 999);
 
-    const records = await this.prisma.accountReceivable.findMany({
-      where: { status: 'PAID', paidAt: { gte: start, lte: end } },
-      select: { paidAt: true, paidAmount: true },
-    });
-
+    const entries = await realizedEntries(this.prisma, start, end);
     const months = MONTH_LABELS.map((label, i) => ({ month: i + 1, label, revenue: 0, count: 0 }));
 
-    for (const r of records) {
-      const m = new Date(r.paidAt!).getMonth();
-      months[m].revenue += Number(r.paidAmount);
+    for (const e of entries) {
+      if (e.type !== 'INCOME') continue;
+      const m = new Date(e.date).getMonth();
+      months[m].revenue += Number(e.amount);
       months[m].count += 1;
     }
 
     return months;
   }
 
+  /** Ranking pelo que a cliente efetivamente pagou, incluindo pagamento parcial. */
   async getTopCustomers(limit = 10) {
-    const grouped = await this.prisma.accountReceivable.groupBy({
-      by: ['customerId'],
-      where: { status: 'PAID', customerId: { not: null } },
-      _sum: { paidAmount: true },
-      _count: { id: true },
-      orderBy: { _sum: { paidAmount: 'desc' } },
-      take: limit,
+    const payments = await this.prisma.payment.findMany({
+      where: { type: 'RECEIVABLE', receivable: { customerId: { not: null } } },
+      select: {
+        amount: true,
+        receivable: {
+          select: { customerId: true, customer: { select: { name: true } } },
+        },
+      },
     });
 
-    const ids = grouped.map(r => r.customerId!).filter(Boolean);
-    const customers = await this.prisma.customer.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, name: true },
-    });
-
-    return grouped.map(r => {
-      const c = customers.find(x => x.id === r.customerId);
-      return {
-        name: c?.name ?? '—',
-        total: Number(r._sum.paidAmount ?? 0),
-        orders: r._count.id,
-      };
-    });
-  }
-
-  async getIncomeVsExpenses(year: number) {
-    const start = new Date(year, 0, 1);
-    const end = new Date(year, 11, 31, 23, 59, 59);
-
-    const transactions = await this.prisma.cashTransaction.findMany({
-      where: { createdAt: { gte: start, lte: end } },
-      select: { type: true, amount: true, createdAt: true },
-    });
-
-    const months = MONTH_LABELS.map((label, i) => ({ month: i + 1, label, income: 0, expense: 0 }));
-
-    for (const t of transactions) {
-      const m = new Date(t.createdAt).getMonth();
-      if (t.type === 'INCOME') months[m].income += Number(t.amount);
-      else months[m].expense += Number(t.amount);
+    const byCustomer = new Map<string, { name: string; total: number; orders: number }>();
+    for (const p of payments) {
+      const id = p.receivable?.customerId;
+      if (!id) continue;
+      const entry = byCustomer.get(id) ?? { name: p.receivable?.customer?.name ?? '—', total: 0, orders: 0 };
+      entry.total += Number(p.amount);
+      entry.orders += 1;
+      byCustomer.set(id, entry);
     }
 
-    return months;
+    return [...byCustomer.values()].sort((a, b) => b.total - a.total).slice(0, limit);
   }
+
+  // getIncomeVsExpenses foi removido: somava apenas os lançamentos da gaveta —
+  // sem Pix nem cartão — e tratava sangria como despesa e suprimento como
+  // receita. Entradas e saídas por período agora só existem em
+  // Financeiro → Fluxo de Caixa, que usa o livro de pagamentos.
 
   async getWorkOrdersByStatus() {
     const statuses = [

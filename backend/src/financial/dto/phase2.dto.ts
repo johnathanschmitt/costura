@@ -13,6 +13,18 @@ export enum CashTransferKind {
   SUPPLY = 'SUPPLY',
 }
 
+/**
+ * Destinos padronizados da sangria (e origens do suprimento). Texto livre não
+ * vira relatório: com a lista dá para responder "quanto foi para o banco no mês".
+ */
+export const CASH_COUNTERPARTS = [
+  'Banco',
+  'Cofre',
+  'Fornecedor',
+  'Retirada de sócia',
+  'Outro',
+] as const;
+
 export class CashTransferDto {
   @ApiProperty({ enum: CashTransferKind, description: 'WITHDRAWAL = sangria, SUPPLY = suprimento' })
   @IsEnum(CashTransferKind, { message: 'Tipo de transferência inválido' })
@@ -24,9 +36,37 @@ export class CashTransferDto {
   @IsPositive({ message: 'Valor deve ser maior que zero' })
   amount: number;
 
-  @ApiProperty({ example: 'Depósito no banco', description: 'Motivo é obrigatório' })
+  @ApiProperty({
+    enum: CASH_COUNTERPARTS,
+    example: 'Banco',
+    description: 'Para onde o dinheiro foi (sangria) ou de onde veio (suprimento)',
+  })
+  @IsEnum(CASH_COUNTERPARTS as any, { message: 'Destino inválido' })
+  counterpart: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Conta que recebe a sangria (ou de onde saiu o suprimento). Informando, o dinheiro ' +
+      'aparece no saldo dela em vez de sumir da gaveta e não chegar em lugar nenhum.',
+  })
+  @IsOptional()
+  @EmptyToUndefined()
+  @IsString()
+  accountId?: string;
+
+  @ApiProperty({ example: 'Depósito da semana', description: 'Motivo é obrigatório' })
   @IsString()
   @MaxLength(200)
+  reason: string;
+}
+
+export class ReversePaymentDto {
+  @ApiProperty({
+    example: 'Valor digitado errado — recebido R$ 20, lançado R$ 200',
+    description: 'Motivo do estorno. Obrigatório: é o que explica a diferença depois.',
+  })
+  @IsString()
+  @MaxLength(300)
   reason: string;
 }
 
@@ -74,6 +114,13 @@ export class CreateInstallmentsDto {
   @IsOptional()
   @IsString()
   workOrderId?: string;
+
+  @ApiPropertyOptional({ example: 'Costura', description: 'Categoria de receita das parcelas' })
+  @IsOptional()
+  @EmptyToUndefined()
+  @IsString()
+  @MaxLength(60)
+  category?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

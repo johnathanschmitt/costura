@@ -1,8 +1,10 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma, WorkOrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_INCOME_CATEGORY } from '../financial/financial.constants';
+import { InventoryService } from '../inventory/inventory.service';
 import {
-  AssignDto, BoardQueryDto, CreateUpdateDto, CreateWorkOrderDto, DeliverDto,
+  AssignDto, BoardQueryDto, CancelWorkOrderDto, CreateUpdateDto, CreateWorkOrderDto, DeliverDto,
   ListWorkOrdersDto, SetEstimatedHoursDto, UpdateStatusDto, UpdateWorkOrderDto,
   WorkOrderItemDto,
 } from './dto/work-orders.dto';
@@ -24,7 +26,7 @@ export const BOARD_COLUMNS: WorkOrderStatus[] = [
 
 @Injectable()
 export class WorkOrdersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private inventory: InventoryService) {}
 
   private async nextNumber() {
     const last = await this.prisma.workOrder.findFirst({ orderBy: { createdAt: 'desc' } });
@@ -185,6 +187,7 @@ export class WorkOrdersService {
         garment: { select: { id: true, name: true, category: true } },
         assignedTo: { select: { id: true, name: true } },
         deliveredBy: { select: { id: true, name: true } },
+        cancelledBy: { select: { id: true, name: true } },
         items: { include: { service: true, product: true }, orderBy: { order: 'asc' } },
         schedules: { orderBy: { startAt: 'asc' } },
         accountsReceivable: {
@@ -260,8 +263,19 @@ export class WorkOrdersService {
         'Use o registro de entrega para marcar a OS como entregue',
       );
     }
+    // Cancelar tem regra própria: pede motivo, encerra as cobranças em aberto e
+    // decide o que fazer com o sinal. Uma troca simples de status pularia tudo
+    // isso e deixaria a cliente sendo cobrada por um serviço que não existe mais.
+    if (dto.status === 'CANCELLED') {
+      throw new BadRequestException(
+        'Use o cancelamento da OS para registrar a desistência da cliente',
+      );
+    }
     if (wo.status === 'DELIVERED') {
       throw new BadRequestException('OS já entregue não pode mudar de status');
+    }
+    if (wo.status === 'CANCELLED') {
+      throw new BadRequestException('OS cancelada não pode mudar de status');
     }
 
     const timestamps: Prisma.WorkOrderUpdateInput = {};
@@ -341,6 +355,7 @@ export class WorkOrdersService {
             description: `${wo.number} — entrega`,
             amount: fin.total,
             dueDate,
+            category: DEFAULT_INCOME_CATEGORY,
           },
         });
       }
@@ -359,6 +374,7 @@ export class WorkOrdersService {
         include: {
           customer: true,
           deliveredBy: { select: { id: true, name: true } },
+        cancelledBy: { select: { id: true, name: true } },
           items: { orderBy: { order: 'asc' } },
         },
       });
@@ -484,6 +500,144 @@ export class WorkOrdersService {
     }
 
     return { alertDays, averageHours, queues };
+  }
+
+  /**
+   * O que o cancelamento vai mexer, para a tela avisar antes de confirmar.
+   *
+   * Cancelar uma OS não é só mudar o status: há cobrança em aberto que precisa
+   * deixar de ser cobrada, sinal que a cliente já pagou e material que talvez
+   * volte para a prateleira.
+   */
+  async getCancelPreview(id: string) {
+    const wo = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, number: true, status: true, total: true, discount: true },
+    });
+    if (!wo) throw new NotFoundException('Ordem de serviço não encontrada');
+
+    const [receivables, consumed] = await Promise.all([
+      this.prisma.accountReceivable.findMany({
+        where: { workOrderId: id, deletedAt: null, status: { not: 'CANCELLED' } },
+        select: { id: true, description: true, amount: true, paidAmount: true, status: true },
+      }),
+      this.prisma.inventoryMovement.findMany({
+        where: { workOrderId: id, type: 'OUT' },
+        select: { quantity: true, product: { select: { name: true, unit: true } } },
+      }),
+    ]);
+
+    const open = receivables.reduce((s, r) => s.plus(D(r.amount).minus(r.paidAmount)), ZERO);
+    const paid = receivables.reduce((s, r) => s.plus(r.paidAmount), ZERO);
+
+    return {
+      workOrder: { id: wo.id, number: wo.number, status: wo.status },
+      canCancel: wo.status !== 'DELIVERED' && wo.status !== 'CANCELLED',
+      openAmount: open,
+      openCount: receivables.filter(r => D(r.amount).gt(r.paidAmount)).length,
+      paidAmount: paid,
+      materials: consumed.map(m => ({
+        name: m.product.name,
+        quantity: m.quantity,
+        unit: m.product.unit,
+      })),
+    };
+  }
+
+  /**
+   * Cancela a OS porque a cliente desistiu.
+   *
+   * A OS não é apagada: fica com status CANCELLED, o motivo e quem cancelou —
+   * apagar esconderia que o trabalho existiu e que houve dinheiro no meio.
+   *
+   * O que acontece com o dinheiro:
+   *  - o que ainda seria cobrado deixa de ser (as contas em aberto são canceladas);
+   *  - o que a cliente já pagou é decisão do ateliê: fica como compensação pelo
+   *    trabalho já feito, ou vira uma conta a pagar para ser devolvida.
+   */
+  async cancel(id: string, dto: CancelWorkOrderDto, userId?: string) {
+    const wo = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      include: { customer: { select: { id: true, name: true } } },
+    });
+    if (!wo) throw new NotFoundException('Ordem de serviço não encontrada');
+    if (wo.status === 'DELIVERED') {
+      throw new BadRequestException(
+        'A peça já foi entregue — uma OS entregue não pode ser cancelada.',
+      );
+    }
+    if (wo.status === 'CANCELLED') throw new BadRequestException('Esta OS já está cancelada');
+
+    const receivables = await this.prisma.accountReceivable.findMany({
+      where: { workOrderId: id, deletedAt: null, status: { not: 'CANCELLED' } },
+      select: { id: true, amount: true, paidAmount: true },
+    });
+    const paid = receivables.reduce((s, r) => s.plus(r.paidAmount), ZERO);
+
+    const result = await this.prisma.$transaction(async tx => {
+      // O que ainda não foi pago deixa de ser cobrado. O que já foi pago
+      // continua registrado: o dinheiro entrou de verdade.
+      const toCancel = receivables.filter(r => D(r.amount).gt(r.paidAmount));
+      if (toCancel.length > 0) {
+        await tx.accountReceivable.updateMany({
+          where: { id: { in: toCancel.map(r => r.id) } },
+          data: { status: 'CANCELLED' },
+        });
+      }
+
+      // Devolver o sinal é uma saída de dinheiro como qualquer outra: vira conta
+      // a pagar, e sai do caixa quando for efetivamente devolvido.
+      let refund: { id: string } | null = null;
+      if (dto.refundPaid && paid.gt(0)) {
+        refund = await tx.accountPayable.create({
+          data: {
+            description: `Devolução à cliente — ${wo.number} cancelada`,
+            supplier: wo.customer?.name ?? null,
+            category: 'Devolução de sinal',
+            amount: paid,
+            dueDate: new Date(),
+            notes: dto.reason,
+          },
+          select: { id: true },
+        });
+      }
+
+      await tx.workOrderUpdate.create({
+        data: {
+          workOrderId: id,
+          note: `OS cancelada — ${dto.reason}`,
+          userId: userId ?? null,
+        },
+      });
+
+      return tx.workOrder.update({
+        where: { id },
+        data: {
+          status: 'CANCELLED',
+          cancelledAt: new Date(),
+          cancelReason: dto.reason,
+          cancelledById: userId ?? null,
+        },
+        include: {
+          customer: { select: { id: true, name: true } },
+          cancelledBy: { select: { id: true, name: true } },
+        },
+      });
+    });
+
+    // Fora da transação: a devolução ao estoque tem transação própria e valida
+    // saldo produto a produto.
+    const materials = dto.returnMaterials
+      ? await this.inventory.returnFromWorkOrder(id, userId)
+      : { returned: 0, items: [] };
+
+    return {
+      workOrder: result,
+      cancelledReceivables: receivables.filter(r => D(r.amount).gt(r.paidAmount)).length,
+      paidAmount: paid,
+      refunded: Boolean(dto.refundPaid && paid.gt(0)),
+      materialsReturned: materials.returned,
+    };
   }
 
   async remove(id: string) {

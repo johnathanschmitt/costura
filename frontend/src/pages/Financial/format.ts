@@ -22,10 +22,8 @@ export const METHOD_LABELS: Record<string, string> = {
   OTHER: 'Outro',
 };
 
-export const EXPENSE_CATEGORIES = [
-  'Aluguel', 'Material', 'Mão de obra', 'Energia', 'Água', 'Internet',
-  'Impostos', 'Marketing', 'Outros',
-];
+// A lista fixa de categorias que existia aqui saiu: as telas usam o cadastro de
+// categorias (CategorySelect), que é o mesmo nome que o DRE agrupa.
 
 export const STATUS_MAP: Record<string, { label: string; color: any }> = {
   PENDING: { label: 'Pendente', color: 'warning' },

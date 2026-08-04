@@ -21,6 +21,7 @@ import CashClosingReportPage from './pages/Financial/CashClosingReportPage';
 import PaymentReceiptPage from './pages/Financial/PaymentReceiptPage';
 import MonthlyClosingPage from './pages/Financial/MonthlyClosingPage';
 import DistributionPrintPage from './pages/Financial/DistributionPrintPage';
+import DrePrintPage from './pages/Financial/DrePrintPage';
 import ServicesPage from './pages/Catalog/ServicesPage';
 import ServiceFormPage from './pages/Catalog/ServiceFormPage';
 import ProductsPage from './pages/Catalog/ProductsPage';
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/financial/payments/:id/receipt" element={<PrivateRoute><PaymentReceiptPage /></PrivateRoute>} />
         <Route path="/financial/fechamento/:month" element={<PrivateRoute><MonthlyClosingPage /></PrivateRoute>} />
         <Route path="/financial/divisao/:month" element={<PrivateRoute><DistributionPrintPage /></PrivateRoute>} />
+        <Route path="/financial/dre/print" element={<PrivateRoute><DrePrintPage /></PrivateRoute>} />
         <Route
           path="/*"
           element={

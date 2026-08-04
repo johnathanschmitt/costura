@@ -4,51 +4,70 @@ import {
   TableContainer, TableHead, TableRow, Paper, Button, LinearProgress, Skeleton,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers';
+import { Print } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
 import api from '../../services/api';
 import { fmt, toNumber } from './format';
 
-function CategoryTable({ title, rows, color, total, isLoading }: any) {
+/** Variação percentual entre períodos, com cor e sinal. */
+function Variation({ value, invert }: { value: unknown; invert?: boolean }) {
+  if (value === null || value === undefined) {
+    return <Typography variant="caption" color="text.disabled">—</Typography>;
+  }
+  const v = toNumber(value);
+  // Em despesa, subir é ruim.
+  const good = invert ? v <= 0 : v >= 0;
+  return (
+    <Typography variant="caption" fontWeight={600} color={v === 0 ? 'text.secondary' : good ? 'success.main' : 'error.main'}>
+      {v > 0 ? '▲ +' : v < 0 ? '▼ ' : ''}{v}%
+    </Typography>
+  );
+}
+
+/**
+ * A coluna de "participação" (percentual de cada categoria no total) saiu: ela
+ * não muda decisão nenhuma. No lugar entrou o mesmo período anterior, que é o
+ * que mostra o que está subindo.
+ */
+function CategoryTable({ title, rows, color, total, previousTotal, isLoading, invert }: any) {
   return (
     <TableContainer component={Paper} variant="outlined">
       <Box sx={{ px: 2, pt: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <Typography variant="subtitle1" fontWeight={600}>{title}</Typography>
-        <Typography variant="h6" fontWeight={700} color={color}>{fmt(total)}</Typography>
+        <Box sx={{ textAlign: 'right' }}>
+          <Typography variant="h6" fontWeight={700} color={color}>{fmt(total)}</Typography>
+          <Typography variant="caption" color="text.secondary">
+            antes {fmt(previousTotal)}
+          </Typography>
+        </Box>
       </Box>
       <Table size="small">
         <TableHead>
           <TableRow>
             <TableCell>Categoria</TableCell>
-            <TableCell align="right">Valor</TableCell>
-            <TableCell width={140}>Participação</TableCell>
+            <TableCell align="right">Período</TableCell>
+            <TableCell align="right">Anterior</TableCell>
+            <TableCell align="right" width={90}>Variação</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {isLoading ? Array.from({ length: 3 }).map((_, i) => (
-            <TableRow key={i}>{[1, 2, 3].map(j => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
+            <TableRow key={i}>{[1, 2, 3, 4].map(j => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
           )) : rows.map((r: any) => (
             <TableRow key={r.category} hover>
               <TableCell>{r.category}</TableCell>
               <TableCell align="right">{fmt(r.amount)}</TableCell>
-              <TableCell>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <LinearProgress
-                    variant="determinate"
-                    value={Math.min(toNumber(r.share), 100)}
-                    color={color === 'success.main' ? 'success' : 'error'}
-                    sx={{ flexGrow: 1, height: 6, borderRadius: 1 }}
-                  />
-                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 42, textAlign: 'right' }}>
-                    {toNumber(r.share).toFixed(1)}%
-                  </Typography>
-                </Box>
+              <TableCell align="right">
+                <Typography variant="body2" color="text.secondary">{fmt(r.previousAmount)}</Typography>
               </TableCell>
+              <TableCell align="right"><Variation value={r.variation} invert={invert} /></TableCell>
             </TableRow>
           ))}
           {!isLoading && rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={3} align="center">
+              <TableCell colSpan={4} align="center">
                 <Typography variant="body2" color="text.secondary" py={2}>
                   Nada no período
                 </Typography>
@@ -62,6 +81,7 @@ function CategoryTable({ title, rows, color, total, isLoading }: any) {
 }
 
 export default function DreSection() {
+  const navigate = useNavigate();
   const [startDate, setStartDate] = useState<Dayjs>(dayjs().startOf('month'));
   const [endDate, setEndDate] = useState<Dayjs>(dayjs().endOf('month'));
 
@@ -95,9 +115,19 @@ export default function DreSection() {
         ))}
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center' }}>
         <DatePicker label="De" value={startDate} onChange={v => v && setStartDate(v)} slotProps={{ textField: { size: 'small' } }} />
         <DatePicker label="Até" value={endDate} onChange={v => v && setEndDate(v)} slotProps={{ textField: { size: 'small' } }} />
+        <Box sx={{ flexGrow: 1 }} />
+        <Button
+          variant="outlined"
+          startIcon={<Print />}
+          onClick={() => navigate(
+            `/financial/dre/print?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`,
+          )}
+        >
+          PDF para o contador
+        </Button>
       </Box>
 
       <Grid container spacing={2} mb={3}>
@@ -106,6 +136,7 @@ export default function DreSection() {
             <CardContent>
               <Typography variant="body2" color="text.secondary">Receita</Typography>
               <Typography variant="h5" fontWeight={700} color="success.main">{fmt(data?.totals?.income)}</Typography>
+              <Variation value={data?.totals?.incomeVariation} />
             </CardContent>
           </Card>
         </Grid>
@@ -114,6 +145,7 @@ export default function DreSection() {
             <CardContent>
               <Typography variant="body2" color="text.secondary">Despesa</Typography>
               <Typography variant="h5" fontWeight={700} color="error.main">{fmt(data?.totals?.expense)}</Typography>
+              <Variation value={data?.totals?.expenseVariation} invert />
             </CardContent>
           </Card>
         </Grid>
@@ -125,7 +157,8 @@ export default function DreSection() {
                 {result >= 0 ? '+' : ''}{fmt(result)}
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.85 }}>
-                margem de {toNumber(data?.totals?.margin).toFixed(1)}% sobre a receita
+                margem de {toNumber(data?.totals?.margin).toFixed(1)}% · antes{' '}
+                {fmt(data?.totals?.previousResult)}
               </Typography>
             </CardContent>
           </Card>
@@ -138,6 +171,7 @@ export default function DreSection() {
             title="Receitas por categoria"
             rows={data?.income ?? []}
             total={data?.totals?.income}
+            previousTotal={data?.totals?.previousIncome}
             color="success.main"
             isLoading={isLoading}
           />
@@ -147,14 +181,17 @@ export default function DreSection() {
             title="Despesas por categoria"
             rows={data?.expense ?? []}
             total={data?.totals?.expense}
+            previousTotal={data?.totals?.previousExpense}
             color="error.main"
             isLoading={isLoading}
+            invert
           />
         </Grid>
       </Grid>
 
       <Typography variant="caption" color="text.secondary" display="block" mt={2}>
-        Sangrias e suprimentos ficam de fora — são transferências de dinheiro, não resultado.
+        Comparado com o período de mesmo tamanho imediatamente anterior. Sangrias e suprimentos
+        ficam de fora — são transferências de dinheiro, não resultado.
       </Typography>
     </Box>
   );

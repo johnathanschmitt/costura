@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box, Grid, Card, CardContent, Typography, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Paper, Chip, IconButton, Skeleton,
   Button, Alert, Avatar, Divider, Accordion, AccordionSummary, AccordionDetails,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Tooltip,
+  FormControlLabel, Checkbox,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight, ExpandMore, Lock, LockOpen, Storefront, Print,
@@ -18,6 +19,116 @@ import { apiError, fmt, toNumber } from './format';
 
 const monthLabel = (key: string) => dayjs(`${key}-01`).format('MMMM [de] YYYY');
 
+/**
+ * Regra de divisão: quanto cabe a cada sócia e quanto fica no ateliê.
+ *
+ * A soma tem que fechar exatamente 100% — com a regra pela metade, alguém
+ * receberia a mais ou a menos sem ninguém ter decidido isso. Mudar a regra não
+ * altera meses já fechados, que guardam o percentual usado na época.
+ */
+function RuleDialog({ open, onClose, data }: any) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [atelier, setAtelier] = useState(0);
+  const [shares, setShares] = useState<Record<string, string>>({});
+  const [monthOnly, setMonthOnly] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open || !data) return;
+    setAtelier(toNumber(data.rule.atelierPercent));
+    setShares(Object.fromEntries(
+      data.shares.map((s: any) => [s.userId, String(toNumber(s.percent) || '')]),
+    ));
+    // Mês que já tem regra própria continua marcado, senão salvar aqui
+    // devolveria ele para a regra padrão sem querer.
+    setMonthOnly(Boolean(data.rule.monthOnly));
+    setError('');
+  }, [open, data]);
+
+  const total = Object.values(shares).reduce((s, v) => s + (Number(v) || 0), 0) + (Number(atelier) || 0);
+  const closed = Math.abs(total - 100) < 0.005;
+
+  const mutation = useMutation({
+    mutationFn: () => api.put('/financial/distribution/rule', {
+      atelierPercent: Number(atelier) || 0,
+      shares: Object.entries(shares).map(([userId, percent]) => ({
+        userId,
+        percent: Number(percent) || 0,
+      })),
+      month: monthOnly ? data.month : undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['distribution'] });
+      toast(monthOnly ? `Regra salva só para ${data.month}` : 'Regra de divisão salva');
+      onClose();
+    },
+    onError: (e: any) => setError(apiError(e, 'Erro ao salvar a regra')),
+  });
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Como dividir o resultado</DialogTitle>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        {error && <Alert severity="error">{error}</Alert>}
+
+        <TextField
+          label="Ateliê (reserva)"
+          value={atelier}
+          onChange={e => setAtelier(Number(e.target.value.replace(',', '.')) || 0)}
+          type="number"
+          size="small"
+          InputProps={{ endAdornment: <Typography variant="caption">%</Typography> }}
+          fullWidth
+        />
+
+        {(data?.shares ?? []).map((s: any) => (
+          <TextField
+            key={s.userId}
+            label={s.name}
+            value={shares[s.userId] ?? ''}
+            onChange={e => setShares(v => ({ ...v, [s.userId]: e.target.value.replace(',', '.') }))}
+            type="number"
+            size="small"
+            InputProps={{ endAdornment: <Typography variant="caption">%</Typography> }}
+            fullWidth
+          />
+        ))}
+
+        <Alert severity={closed ? 'success' : 'warning'}>
+          Total: <strong>{total.toFixed(2)}%</strong>
+          {!closed && (total > 100
+            ? ` — passou ${(total - 100).toFixed(2)}%`
+            : ` — faltam ${(100 - total).toFixed(2)}%`)}
+        </Alert>
+
+        {/* Para o caso pontual — uma sócia afastada num mês — sem mexer na
+            regra que vale para os outros meses. */}
+        <FormControlLabel
+          control={<Checkbox checked={monthOnly} onChange={e => setMonthOnly(e.target.checked)} />}
+          label={`Usar estes percentuais só em ${monthLabel(data?.month ?? '')}`}
+        />
+
+        <Typography variant="caption" color="text.secondary">
+          {monthOnly
+            ? 'A regra padrão dos outros meses fica como está.'
+            : 'Vale para os próximos meses. Meses já fechados guardam o percentual usado na época e não mudam.'}
+        </Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={mutation.isPending}>Cancelar</Button>
+        <Button
+          variant="contained"
+          onClick={() => mutation.mutate()}
+          disabled={!closed || mutation.isPending}
+        >
+          Salvar regra
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 export default function DistributionSection() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -25,6 +136,7 @@ export default function DistributionSection() {
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
   const [closeOpen, setCloseOpen] = useState(false);
   const [reopenOpen, setReopenOpen] = useState(false);
+  const [ruleOpen, setRuleOpen] = useState(false);
   const [notes, setNotes] = useState('');
 
   const { data, isLoading } = useQuery({
@@ -51,6 +163,32 @@ export default function DistributionSection() {
       toast('Divisão reaberta', 'info');
     },
     onError: (e: any) => toast(apiError(e, 'Erro ao reabrir'), 'error'),
+  });
+
+  const payoutMutation = useMutation({
+    mutationFn: (payoutId: string) => api.patch(`/financial/distribution/payouts/${payoutId}/pay`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['distribution'] });
+      qc.invalidateQueries({ queryKey: ['financial-accounts'] });
+      toast('Retirada registrada');
+    },
+    onError: (e: any) => toast(apiError(e, 'Erro ao registrar a retirada'), 'error'),
+  });
+
+  const settleLossMutation = useMutation({
+    mutationFn: () => api.post(`/financial/distribution/${month}/settle-loss`, {}),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['distribution'] });
+      qc.invalidateQueries({ queryKey: ['financial-accounts'] });
+      const pending = toNumber(res.data.pending);
+      toast(
+        pending > 0
+          ? `Reserva cobriu ${fmt(res.data.coveredByReserve)}; ${fmt(pending)} passam para o mês seguinte.`
+          : 'Prejuízo coberto pela reserva do ateliê.',
+        pending > 0 ? 'warning' : 'success',
+      );
+    },
+    onError: (e: any) => toast(apiError(e, 'Erro ao tratar o prejuízo'), 'error'),
   });
 
   const shift = (d: number) => setMonth(m => dayjs(`${m}-01`).add(d, 'month').format('YYYY-MM'));
@@ -99,10 +237,43 @@ export default function DistributionSection() {
         </Alert>
       )}
 
-      {result <= 0 && (
+      {toNumber(data.grossResult) < 0 && !closed && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2 }}
+          action={
+            <Button
+              size="small"
+              onClick={() => settleLossMutation.mutate()}
+              disabled={settleLossMutation.isPending}
+            >
+              Cobrir com a reserva
+            </Button>
+          }
+        >
+          O mês fechou negativo em <strong>{fmt(Math.abs(toNumber(data.grossResult)))}</strong>. A
+          reserva do ateliê tem {fmt(data.reserve.balance)} — o que ela não cobrir passa para o mês
+          seguinte.
+        </Alert>
+      )}
+
+      {result <= 0 && toNumber(data.grossResult) >= 0 && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          O mês fechou {result === 0 ? 'zerado' : `negativo em ${fmt(Math.abs(result))}`} — não há
-          resultado a dividir.
+          {toNumber(data.grossResult) === 0
+            ? 'O mês fechou zerado — não há resultado a dividir.'
+            : 'Depois de tirar os sinais de peças não entregues e o prejuízo anterior, não sobrou nada para dividir.'}
+        </Alert>
+      )}
+
+      {!data.rule.valid && (
+        <Alert severity="error" sx={{ mb: 2 }} action={
+          <Button size="small" onClick={() => setRuleOpen(true)}>Ajustar regra</Button>
+        }>
+          Os percentuais somam <strong>{toNumber(data.rule.percentTotal).toFixed(2)}%</strong> —
+          precisam fechar 100% para dividir.
+          {data.rule.partnersWithoutPercent.length > 0 && (
+            <> Sem percentual: {data.rule.partnersWithoutPercent.join(', ')}.</>
+          )}
         </Alert>
       )}
 
@@ -114,58 +285,176 @@ export default function DistributionSection() {
         </Alert>
       )}
 
-      {/* Resumo da divisão */}
+      {/* Como se chega ao valor a dividir — a conta aberta, linha a linha */}
       <Card variant="outlined" sx={{ mb: 3 }}>
         <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 1 }}>
-            <Typography variant="subtitle1" fontWeight={600}>Resultado a dividir</Typography>
-            <Typography variant="h5" fontWeight={700} color={result >= 0 ? 'success.main' : 'error.main'}>
-              {fmt(closed ? closed.result : data.result)}
-            </Typography>
-          </Box>
-          <Typography variant="caption" color="text.secondary">
-            Entrou {fmt(data.income)} · saiu {fmt(data.expense)} · dividido em{' '}
-            <strong>{data.parts} partes iguais</strong> ({data.shares.length} sócias + o ateliê)
+          <Typography variant="subtitle1" fontWeight={600} mb={1.5}>
+            Quanto sobrou para dividir
           </Typography>
+
+          <Box sx={{ maxWidth: 480 }}>
+            {[
+              { label: 'Entrou no mês', value: data.income, sign: '' },
+              { label: 'Saiu no mês', value: data.expense, sign: '−' },
+            ].map(l => (
+              <Box key={l.label} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                <Typography variant="body2" color="text.secondary">{l.label}</Typography>
+                <Typography variant="body2">{l.sign} {fmt(l.value)}</Typography>
+              </Box>
+            ))}
+            <Divider sx={{ my: 0.5 }} />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+              <Typography variant="body2" fontWeight={600}>Resultado do mês</Typography>
+              <Typography variant="body2" fontWeight={600}>{fmt(data.grossResult)}</Typography>
+            </Box>
+
+            {toNumber(data.withheldSignals.amount) > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                <Tooltip title={data.withheldSignals.items.map((i: any) => `${i.workOrderNumber ?? ''} ${i.customer ?? ''} — ${fmt(i.amount)}`).join('\n')}>
+                  <Typography variant="body2" color="text.secondary" sx={{ cursor: 'help' }}>
+                    Sinais de {data.withheldSignals.count} peça(s) não entregues
+                  </Typography>
+                </Tooltip>
+                <Typography variant="body2">− {fmt(data.withheldSignals.amount)}</Typography>
+              </Box>
+            )}
+
+            {toNumber(data.carryOver.total) > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Prejuízo de {data.carryOver.months.map((m: any) => m.month).join(', ')}
+                </Typography>
+                <Typography variant="body2">− {fmt(data.carryOver.total)}</Typography>
+              </Box>
+            )}
+
+            <Divider sx={{ my: 0.5 }} />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+              <Typography variant="subtitle1" fontWeight={700}>A DIVIDIR</Typography>
+              <Typography
+                variant="h6"
+                fontWeight={700}
+                color={result >= 0 ? 'success.main' : 'error.main'}
+              >
+                {fmt(closed ? closed.result : data.result)}
+              </Typography>
+            </Box>
+          </Box>
+        </CardContent>
+      </Card>
+
+      {/* Como é dividido */}
+      <Card variant="outlined" sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="subtitle1" fontWeight={600}>Como é dividido</Typography>
+            {!closed && (
+              <Button size="small" onClick={() => setRuleOpen(true)}>Editar regra</Button>
+            )}
+          </Box>
 
           <Divider sx={{ my: 2 }} />
 
-          <Grid container spacing={2}>
-            {(closed ? closed.shares : data.shares).map((s: any) => (
-              <Grid item xs={12} sm={6} md={3} key={s.userId}>
-                <Card variant="outlined" sx={{ height: '100%' }}>
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    <Avatar sx={{ mx: 'auto', mb: 1, bgcolor: 'secondary.main' }}>
-                      {s.name.charAt(0).toUpperCase()}
-                    </Avatar>
-                    <Typography variant="body2" noWrap>{s.name}</Typography>
-                    <Typography variant="h6" fontWeight={700} color="success.main">
-                      {fmt(s.amount)}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      produziu {s.deliveredCount} peça{s.deliveredCount === 1 ? '' : 's'}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ height: '100%', bgcolor: 'primary.main', color: 'white' }}>
-                <CardContent sx={{ textAlign: 'center' }}>
-                  <Avatar sx={{ mx: 'auto', mb: 1, bgcolor: 'rgba(255,255,255,0.2)' }}>
-                    <Storefront />
-                  </Avatar>
-                  <Typography variant="body2">Ateliê</Typography>
-                  <Typography variant="h6" fontWeight={700}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Quem</TableCell>
+                <TableCell align="right">%</TableCell>
+                <TableCell align="right">Valor</TableCell>
+                <TableCell>Retirada</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              <TableRow>
+                <TableCell>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Storefront fontSize="small" color="primary" />
+                    Ateliê (reserva)
+                  </Box>
+                </TableCell>
+                <TableCell align="right">
+                  {toNumber(closed?.atelierPercent ?? data.rule.atelierPercent).toFixed(2)}%
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" fontWeight={700}>
                     {fmt(closed ? closed.atelierShare : data.atelierShare)}
                   </Typography>
-                  <Typography variant="caption" sx={{ opacity: 0.85 }}>
-                    fica para os gastos
+                </TableCell>
+                <TableCell>
+                  <Typography variant="caption" color="text.secondary">
+                    vai para a reserva
                   </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+                </TableCell>
+              </TableRow>
+
+              {(closed ? closed.shares : data.shares).map((s: any) => {
+                const payout = closed?.payouts?.find((p: any) => p.userId === s.userId);
+                return (
+                  <TableRow key={s.userId}>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Avatar sx={{ width: 26, height: 26, fontSize: 12, bgcolor: 'secondary.main' }}>
+                          {s.name.charAt(0).toUpperCase()}
+                        </Avatar>
+                        {s.name}
+                      </Box>
+                    </TableCell>
+                    <TableCell align="right">{toNumber(s.percent).toFixed(2)}%</TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" fontWeight={700} color="success.main">
+                        {fmt(s.amount)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {!closed ? (
+                        <Typography variant="caption" color="text.secondary">
+                          após fechar a divisão
+                        </Typography>
+                      ) : payout?.paidAt ? (
+                        <Chip
+                          size="small"
+                          color="success"
+                          label={`retirado ${dayjs(payout.paidAt).format('DD/MM')}`}
+                        />
+                      ) : payout ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => payoutMutation.mutate(payout.id)}
+                          disabled={payoutMutation.isPending}
+                        >
+                          registrar retirada
+                        </Button>
+                      ) : '—'}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+
+          {closed && (
+            <Typography variant="caption" color="text.secondary" display="block" mt={1.5}>
+              O que ainda não foi retirado continua devido à sócia e não volta para o bolo do mês
+              seguinte.
+            </Typography>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Reserva do ateliê */}
+      <Card variant="outlined" sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <Typography variant="subtitle1" fontWeight={600}>Reserva do ateliê</Typography>
+            <Typography variant="h6" fontWeight={700}>{fmt(data.reserve.balance)}</Typography>
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            Meta: {data.reserve.targetMonths} meses de custo fixo ({fmt(data.reserve.target)})
+            {toNumber(data.reserve.target) > 0 && (
+              <> · {Math.min(100, Math.round((toNumber(data.reserve.balance) / toNumber(data.reserve.target)) * 100))}% da meta</>
+            )}
+          </Typography>
         </CardContent>
       </Card>
 
@@ -264,6 +553,8 @@ export default function DistributionSection() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <RuleDialog open={ruleOpen} onClose={() => setRuleOpen(false)} data={data} />
 
       <ConfirmDialog
         open={reopenOpen}

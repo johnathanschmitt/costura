@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import {
-  Card, CardContent, Typography, Grid, TextField, Button,
+  Card, CardContent, Typography, Grid, TextField, Button, IconButton, Tooltip,
   Table, TableBody, TableCell, TableHead, TableRow, Box, Collapse, CircularProgress,
 } from '@mui/material';
-import { Add, ExpandMore, ExpandLess } from '@mui/icons-material';
+import { Add, ExpandMore, ExpandLess, DeleteOutline } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import api from '../../services/api';
@@ -22,10 +22,18 @@ const FIELDS: { key: string; label: string }[] = [
   { key: 'wrist', label: 'Pulso' },
 ];
 
+type CustomField = { label: string; value: string };
+
+/** Tipos extras salvos numa medição — vêm do backend como [{ label, value }]. */
+function readCustom(measurement: any): { label: string; value: number | null }[] {
+  return Array.isArray(measurement?.custom) ? measurement.custom : [];
+}
+
 export default function MeasurementsCard({ customerId }: { customerId: string }) {
   const [open, setOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [custom, setCustom] = useState<CustomField[]>([]);
   const [notes, setNotes] = useState('');
   const qc = useQueryClient();
 
@@ -40,19 +48,34 @@ export default function MeasurementsCard({ customerId }: { customerId: string })
       qc.invalidateQueries({ queryKey: ['measurements', customerId] });
       setShowForm(false);
       setValues({});
+      setCustom([]);
       setNotes('');
     },
   });
+
+  const latest = measurements[0];
+
+  // Ao abrir o formulário, repete os tipos extras já usados pelo cliente (sem os valores).
+  const toggleForm = () => {
+    setShowForm(s => {
+      if (!s) setCustom(readCustom(latest).map(f => ({ label: f.label, value: '' })));
+      return !s;
+    });
+  };
+
+  const updateCustom = (index: number, patch: Partial<CustomField>) =>
+    setCustom(list => list.map((f, i) => (i === index ? { ...f, ...patch } : f)));
 
   const handleSave = () => {
     const payload: any = { notes };
     FIELDS.forEach(f => {
       if (values[f.key]) payload[f.key] = parseFloat(values[f.key]);
     });
+    payload.custom = custom
+      .filter(f => f.label.trim())
+      .map(f => ({ label: f.label.trim(), value: f.value ? parseFloat(f.value) : null }));
     saveMutation.mutate(payload);
   };
-
-  const latest = measurements[0];
 
   return (
     <Card>
@@ -60,7 +83,7 @@ export default function MeasurementsCard({ customerId }: { customerId: string })
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
           <Typography variant="subtitle1" fontWeight={600}>Medidas</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button size="small" startIcon={<Add />} onClick={() => setShowForm(s => !s)}>
+            <Button size="small" startIcon={<Add />} onClick={toggleForm}>
               Nova Medição
             </Button>
             <Button size="small" endIcon={open ? <ExpandLess /> : <ExpandMore />} onClick={() => setOpen(s => !s)}>
@@ -77,6 +100,14 @@ export default function MeasurementsCard({ customerId }: { customerId: string })
                 <Box sx={{ bgcolor: 'background.default', borderRadius: 1, p: 1 }}>
                   <Typography variant="caption" color="text.secondary">{f.label}</Typography>
                   <Typography variant="body2" fontWeight={600}>{latest[f.key]} cm</Typography>
+                </Box>
+              </Grid>
+            ))}
+            {readCustom(latest).filter(f => f.value != null).map(f => (
+              <Grid item xs={6} sm={4} md={3} key={`custom-${f.label}`}>
+                <Box sx={{ bgcolor: 'background.default', borderRadius: 1, p: 1 }}>
+                  <Typography variant="caption" color="text.secondary">{f.label}</Typography>
+                  <Typography variant="body2" fontWeight={600}>{f.value} cm</Typography>
                 </Box>
               </Grid>
             ))}
@@ -111,6 +142,47 @@ export default function MeasurementsCard({ customerId }: { customerId: string })
                   />
                 </Grid>
               ))}
+
+              {custom.map((f, i) => (
+                <Grid item xs={12} sm={6} md={4} key={i}>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      label="Tipo de medida"
+                      placeholder="Ex.: Punho, Cava, Barra"
+                      value={f.label}
+                      onChange={e => updateCustom(i, { label: e.target.value })}
+                      size="small"
+                      sx={{ flex: 1 }}
+                    />
+                    <TextField
+                      label="Medida"
+                      value={f.value}
+                      onChange={e => updateCustom(i, { value: e.target.value })}
+                      type="number"
+                      size="small"
+                      sx={{ width: 110 }}
+                      inputProps={{ step: '0.5', min: '0' }}
+                      InputProps={{ endAdornment: <Typography variant="caption" color="text.secondary">cm</Typography> }}
+                    />
+                    <Tooltip title="Remover tipo">
+                      <IconButton size="small" onClick={() => setCustom(list => list.filter((_, j) => j !== i))}>
+                        <DeleteOutline fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </Grid>
+              ))}
+
+              <Grid item xs={12}>
+                <Button
+                  size="small"
+                  startIcon={<Add />}
+                  onClick={() => setCustom(list => [...list, { label: '', value: '' }])}
+                >
+                  Adicionar outro tipo de medida
+                </Button>
+              </Grid>
+
               <Grid item xs={12}>
                 <TextField
                   label="Observações"

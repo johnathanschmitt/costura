@@ -6,17 +6,25 @@ import {
   Alert, TablePagination, IconButton, Tooltip,
 } from '@mui/material';
 import MoneyField from '../../components/common/fields/MoneyField';
-import { Add, Payment, Block } from '@mui/icons-material';
+import { Add, Payment, Block, Edit, History, AttachFile } from '@mui/icons-material';
+import AttachmentsCard from '../../components/common/AttachmentsCard';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { DatePicker } from '@mui/x-date-pickers';
 import dayjs, { Dayjs } from 'dayjs';
 import api from '../../services/api';
 import PaymentDialog from '../../components/common/PaymentDialog';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import CategorySelect from './CategorySelect';
+import MonthNavigator, { monthRange, isFromAnotherMonth, monthOf } from './MonthNavigator';
+import EditAccountDialog from './EditAccountDialog';
+import PaymentsHistoryDialog from './PaymentsHistoryDialog';
 import { useToast } from '../../store/toast.store';
 import { apiError, fmt, STATUS_MAP, toNumber } from './format';
 
-const CATEGORIES = ['Aluguel', 'Material', 'Mão de obra', 'Energia', 'Água', 'Internet', 'Impostos', 'Marketing', 'Outros'];
+// A lista de categorias vem do cadastro (CategorySelect). A lista fixa que
+// existia aqui usava nomes próprios ("Material", "Energia") que não batiam com
+// os do cadastro ("Materiais", "Luz"), e o DRE agrupa pelo nome — o mesmo gasto
+// aparecia em duas linhas.
 
 function NewPayableDialog({ open, onClose, onSuccess }: any) {
   const [form, setForm] = useState({
@@ -64,12 +72,11 @@ function NewPayableDialog({ open, onClose, onSuccess }: any) {
             <TextField label="Fornecedor" value={form.supplier} onChange={e => setForm(f => ({ ...f, supplier: e.target.value }))} fullWidth />
           </Grid>
           <Grid item xs={6}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Categoria</InputLabel>
-              <Select value={form.category} label="Categoria" onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-                {CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-              </Select>
-            </FormControl>
+            <CategorySelect
+              type="EXPENSE"
+              value={form.category}
+              onChange={v => setForm(f => ({ ...f, category: v }))}
+            />
           </Grid>
           <Grid item xs={6}>
             <MoneyField
@@ -139,17 +146,29 @@ export default function PayablesSection() {
   const toast = useToast();
   const [status, setStatus] = useState('');
   const [category, setCategory] = useState('');
+  const [month, setMonth] = useState(monthOf());
+  const [includeOverdue, setIncludeOverdue] = useState(true);
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(20);
   const [payTarget, setPayTarget] = useState<any>(null);
   const [cancelTarget, setCancelTarget] = useState<any>(null);
+  const [editTarget, setEditTarget] = useState<any>(null);
+  const [historyTarget, setHistoryTarget] = useState<any>(null);
+  const [attachTarget, setAttachTarget] = useState<any>(null);
   const [newDialog, setNewDialog] = useState(false);
   const [payError, setPayError] = useState('');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['payables', status, category, page, limit],
+    queryKey: ['payables', status, category, month, includeOverdue, page, limit],
     queryFn: () => api.get('/financial/payables', {
-      params: { status: status || undefined, category: category || undefined, page: page + 1, limit },
+      params: {
+        status: status || undefined,
+        category: category || undefined,
+        ...monthRange(month),
+        includeOverdue,
+        page: page + 1,
+        limit,
+      },
     }).then(r => r.data),
   });
 
@@ -177,6 +196,15 @@ export default function PayablesSection() {
 
   return (
     <Box>
+      <Box sx={{ mb: 2 }}>
+        <MonthNavigator
+          month={month}
+          onChange={m => { setMonth(m); setPage(0); }}
+          includeOverdue={includeOverdue}
+          onIncludeOverdueChange={v => { setIncludeOverdue(v); setPage(0); }}
+        />
+      </Box>
+
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
         <Box sx={{ display: 'flex', gap: 4 }}>
           <Box>
@@ -195,15 +223,31 @@ export default function PayablesSection() {
               </Typography>
             </Box>
           )}
+          {/* O custo fixo é o que define quanto o ateliê precisa faturar para
+              empatar; separado do variável, dá para ver o que dá para cortar. */}
+          {summary && (
+            <Box>
+              <Typography variant="body2" color="text.secondary">Em aberto</Typography>
+              <Typography variant="body2">
+                fixas <strong>{fmt(summary.openFixed)}</strong>
+                {' · '}
+                variáveis <strong>{fmt(summary.openVariable)}</strong>
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                fixas: {(summary.fixedCategories ?? []).join(', ') || 'nenhuma marcada'}
+              </Typography>
+            </Box>
+          )}
         </Box>
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel>Categoria</InputLabel>
-            <Select value={category} label="Categoria" onChange={e => { setCategory(e.target.value); setPage(0); }}>
-              <MenuItem value="">Todas</MenuItem>
-              {CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-            </Select>
-          </FormControl>
+          <Box sx={{ minWidth: 160 }}>
+            <CategorySelect
+              type="EXPENSE"
+              value={category}
+              onChange={v => { setCategory(v); setPage(0); }}
+              emptyLabel="Todas"
+            />
+          </Box>
           <FormControl size="small" sx={{ minWidth: 140 }}>
             <InputLabel>Status</InputLabel>
             <Select value={status} label="Status" onChange={e => { setStatus(e.target.value); setPage(0); }}>
@@ -250,6 +294,15 @@ export default function PayablesSection() {
                   </TableCell>
                   <TableCell sx={{ color: overdue ? 'error.main' : undefined, fontWeight: overdue ? 600 : undefined }}>
                     {dayjs(r.dueDate).format('DD/MM/YYYY')}
+                    {isFromAnotherMonth(r.dueDate, month) && (
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        color="warning"
+                        label="de outro mês"
+                        sx={{ ml: 0.5, height: 18, fontSize: 10 }}
+                      />
+                    )}
                     {overdue && (
                       <Typography variant="caption" display="block" color="error.main">
                         há {dayjs().diff(dayjs(r.dueDate), 'day')} dia(s)
@@ -258,19 +311,40 @@ export default function PayablesSection() {
                   </TableCell>
                   <TableCell><Chip label={label} size="small" color={color} /></TableCell>
                   <TableCell align="right">
-                    {!settled && (
-                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                      {!settled && (
                         <Button size="small" variant="outlined" color="error" startIcon={<Payment />}
                           onClick={() => { setPayError(''); setPayTarget(r); }}>
                           Pagar
                         </Button>
-                        <Tooltip title="Cancelar conta">
-                          <IconButton size="small" onClick={() => setCancelTarget(r)}>
-                            <Block fontSize="small" />
+                      )}
+                      <Tooltip title="Comprovante / nota fiscal">
+                        <IconButton size="small" onClick={() => setAttachTarget(r)}>
+                          <AttachFile fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      {(r.payments?.length ?? 0) > 0 && (
+                        <Tooltip title="Baixas e estorno">
+                          <IconButton size="small" onClick={() => setHistoryTarget(r)}>
+                            <History fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                      </Box>
-                    )}
+                      )}
+                      {!settled && (
+                        <>
+                          <Tooltip title="Editar conta">
+                            <IconButton size="small" onClick={() => setEditTarget(r)}>
+                              <Edit fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Cancelar conta">
+                            <IconButton size="small" onClick={() => setCancelTarget(r)}>
+                              <Block fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </>
+                      )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               );
@@ -307,6 +381,36 @@ export default function PayablesSection() {
         error={payError}
         confirmColor="error"
         amountLabel="Valor pago (R$)"
+      />
+
+      <EditAccountDialog
+        account={editTarget}
+        kind="payable"
+        onClose={() => setEditTarget(null)}
+      />
+
+      {/* Guardar a nota junto da despesa evita a caça ao papel quando o contador
+          pede o comprovante meses depois. */}
+      <Dialog open={Boolean(attachTarget)} onClose={() => setAttachTarget(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Comprovantes
+          <Typography variant="caption" color="text.secondary" display="block">
+            {attachTarget?.description}
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          {attachTarget && (
+            <AttachmentsCard entityType="accountPayable" entityId={attachTarget.id} />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAttachTarget(null)}>Fechar</Button>
+        </DialogActions>
+      </Dialog>
+
+      <PaymentsHistoryDialog
+        account={historyTarget}
+        onClose={() => setHistoryTarget(null)}
       />
 
       <ConfirmDialog

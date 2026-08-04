@@ -2,27 +2,42 @@ import { useState } from 'react';
 import {
   Box, Grid, Card, CardContent, Typography, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Paper, Chip, Button, Skeleton, Tooltip,
-  FormControl, InputLabel, Select, MenuItem,
+  FormControl, InputLabel, Select, MenuItem, TablePagination, TextField, Alert,
 } from '@mui/material';
-import { ArrowUpward, ArrowDownward, TrendingUp, Download } from '@mui/icons-material';
+import {
+  ArrowUpward, ArrowDownward, TrendingUp, Download, Search, WarningAmber,
+} from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers';
 import { useQuery } from '@tanstack/react-query';
 import dayjs, { Dayjs } from 'dayjs';
 import api from '../../services/api';
 import CashFlowChart from './CashFlowChart';
-import { EXPENSE_CATEGORIES, fmt, METHOD_LABELS, toNumber } from './format';
+import CategorySelect from './CategorySelect';
+import { fmt, METHOD_LABELS, toNumber } from './format';
 
 export default function CashFlowSection() {
   const [startDate, setStartDate] = useState<Dayjs>(dayjs().startOf('month'));
   const [endDate, setEndDate] = useState<Dayjs>(dayjs().endOf('month'));
   const [groupBy, setGroupBy] = useState<'week' | 'month'>('month');
   const [category, setCategory] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const [limit, setLimit] = useState(20);
+
+  const periodLabel = (key: string) =>
+    groupBy === 'month' ? dayjs(`${key}-01`).format('MMMM/YY') : `semana de ${dayjs(key).format('DD/MM')}`;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['cash-flow', startDate.toISOString(), endDate.toISOString()],
+    queryKey: ['cash-flow', startDate.toISOString(), endDate.toISOString(), page, limit, search],
     queryFn: () =>
       api.get('/financial/cash-flow', {
-        params: { startDate: startDate.toISOString(), endDate: endDate.toISOString() },
+        params: {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          page: page + 1,
+          limit,
+          search: search || undefined,
+        },
       }).then(r => r.data),
   });
 
@@ -51,9 +66,6 @@ export default function CashFlowSection() {
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const periodLabel = (key: string) =>
-    groupBy === 'month' ? dayjs(`${key}-01`).format('MMMM/YY') : `semana de ${dayjs(key).format('DD/MM')}`;
 
   const balance = toNumber(data?.balance);
   const entries = data?.entries ?? [];
@@ -101,13 +113,9 @@ export default function CashFlowSection() {
             <MenuItem value="week">Semana</MenuItem>
           </Select>
         </FormControl>
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>Categoria</InputLabel>
-          <Select value={category} label="Categoria" onChange={e => setCategory(e.target.value)}>
-            <MenuItem value="">Todas</MenuItem>
-            {EXPENSE_CATEGORIES.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
-          </Select>
-        </FormControl>
+        <Box sx={{ minWidth: 160 }}>
+          <CategorySelect type="EXPENSE" value={category} onChange={setCategory} emptyLabel="Todas" />
+        </Box>
         <Box sx={{ flexGrow: 1 }} />
         <Button variant="outlined" startIcon={<Download />} onClick={exportCsv}>
           Exportar
@@ -174,61 +182,36 @@ export default function CashFlowSection() {
         </Grid>
       </Grid>
 
-      {/* Projeção e extremos do período */}
+      {/*
+        "Melhor período" e "pior período" saíram: são curiosidade histórica, não
+        decisão. O que muda o que se faz hoje é a projeção — e ela ficou.
+      */}
+      {/* Saldo projetado negativo é o aviso que muda decisão: dá para o período
+          fechar no azul e faltar dinheiro no meio do caminho. */}
+      {chart?.firstNegative && (
+        <Alert severity="error" sx={{ mb: 2 }} icon={<WarningAmber />}>
+          O saldo projetado fica negativo em{' '}
+          <strong>{periodLabel(chart.firstNegative.key)}</strong> ({fmt(chart.firstNegative.balance)}).
+          Antecipe um recebimento ou negocie um vencimento.
+        </Alert>
+      )}
+
       {chart && (
-        <Grid container spacing={2} mb={3}>
-          <Grid item xs={12} sm={4}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">Projeção do período</Typography>
-                <Typography
-                  variant="h5"
-                  fontWeight={700}
-                  color={Number(chart.totals.projectedResult) >= 0 ? 'success.main' : 'error.main'}
-                >
-                  {fmt(chart.totals.projectedResult)}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  inclui {fmt(chart.totals.plannedIn)} a receber e {fmt(chart.totals.plannedOut)} a pagar
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">Melhor período</Typography>
-                {chart.best ? (
-                  <>
-                    <Typography variant="h6" fontWeight={700} color="success.main">
-                      {fmt(chart.best.result)}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
-                      {periodLabel(chart.best.key)}
-                    </Typography>
-                  </>
-                ) : <Typography variant="body2" color="text.disabled">—</Typography>}
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">Pior período</Typography>
-                {chart.worst ? (
-                  <>
-                    <Typography variant="h6" fontWeight={700} color="error.main">
-                      {fmt(chart.worst.result)}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
-                      {periodLabel(chart.worst.key)}
-                    </Typography>
-                  </>
-                ) : <Typography variant="body2" color="text.disabled">—</Typography>}
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <Card variant="outlined" sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="body2" color="text.secondary">Projeção do período</Typography>
+            <Typography
+              variant="h5"
+              fontWeight={700}
+              color={Number(chart.totals.projectedResult) >= 0 ? 'success.main' : 'error.main'}
+            >
+              {fmt(chart.totals.projectedResult)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              inclui {fmt(chart.totals.plannedIn)} a receber e {fmt(chart.totals.plannedOut)} a pagar
+            </Typography>
+          </CardContent>
+        </Card>
       )}
 
       {/* Gráfico */}
@@ -254,9 +237,20 @@ export default function CashFlowSection() {
         </Box>
       )}
 
-      <Typography variant="subtitle1" fontWeight={600} mb={1.5}>
-        Movimentações do período
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5, flexWrap: 'wrap' }}>
+        <Typography variant="subtitle1" fontWeight={600}>Movimentações do período</Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        {/* O extrato vinha cortado em 500 linhas sem avisar: quem procurava um
+            lançamento antigo simplesmente não achava. */}
+        <TextField
+          size="small"
+          placeholder="Buscar por descrição, cliente ou categoria"
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(0); }}
+          InputProps={{ startAdornment: <Search fontSize="small" sx={{ mr: 1, color: 'text.disabled' }} /> }}
+          sx={{ minWidth: 320 }}
+        />
+      </Box>
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
@@ -310,13 +304,26 @@ export default function CashFlowSection() {
               <TableRow>
                 <TableCell colSpan={7} align="center">
                   <Typography variant="body2" color="text.secondary" py={2}>
-                    Nenhuma movimentação no período selecionado
+                    {search
+                      ? `Nada encontrado para "${search}" no período`
+                      : 'Nenhuma movimentação no período selecionado'}
                   </Typography>
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={data?.entriesTotal ?? 0}
+          page={page}
+          onPageChange={(_, p) => setPage(p)}
+          rowsPerPage={limit}
+          onRowsPerPageChange={e => { setLimit(Number(e.target.value)); setPage(0); }}
+          rowsPerPageOptions={[20, 50, 100, 200]}
+          labelRowsPerPage="Por página"
+          labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+        />
       </TableContainer>
     </Box>
   );

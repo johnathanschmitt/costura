@@ -9,7 +9,6 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import api from '../../services/api';
 import RevenueChart from './RevenueChart';
-import CashFlowChart from './CashFlowChart';
 import StatusChart from './StatusChart';
 import TopCustomersChart from './TopCustomersChart';
 
@@ -82,11 +81,9 @@ export default function ReportsPage() {
     staleTime: 60_000,
   });
 
-  const { data: cashflowData = [], isLoading: loadingCashflow } = useQuery({
-    queryKey: ['reports-cashflow', year],
-    queryFn: () => api.get('/reports/income-vs-expenses', { params: { year } }).then(r => r.data),
-    staleTime: 60_000,
-  });
+  // O gráfico "Receitas vs Despesas" saiu daqui: ele somava só o dinheiro da
+  // gaveta (ignorando Pix e cartão) e contava sangria como despesa. Entradas e
+  // saídas por período estão em Financeiro → Fluxo de Caixa, com a conta certa.
 
   const { data: statusData = [], isLoading: loadingStatus } = useQuery({
     queryKey: ['reports-status'],
@@ -176,12 +173,7 @@ export default function ReportsPage() {
 
       {/* Charts row 2 */}
       <Grid container spacing={2}>
-        <Grid item xs={12} lg={7}>
-          <ChartCard title={`Receitas vs Despesas — ${year}`} loading={loadingCashflow}>
-            <CashFlowChart data={cashflowData} />
-          </ChartCard>
-        </Grid>
-        <Grid item xs={12} lg={5}>
+        <Grid item xs={12}>
           <ChartCard title="Top 10 clientes" loading={loadingTop}>
             {(topCustomers as any[]).length === 0
               ? <Typography variant="body2" color="text.secondary" py={4} textAlign="center">Sem dados</Typography>

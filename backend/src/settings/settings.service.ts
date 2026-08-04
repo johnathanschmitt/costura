@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException,
+} from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_TEMPLATE, TEMPLATE_VARS } from '../quotes/quote-share';
@@ -144,7 +146,43 @@ export class SettingsService {
     whatsappTemplate?: string | null;
     whatsapp?: string | null; instagram?: string | null;
     facebook?: string | null; tiktok?: string | null;
+    // ── Financeiro ──
+    blindCashCount?: boolean;
+    targetHourlyRate?: number | null;
+    fixedCostMode?: 'REAL' | 'AVERAGE_3M' | 'MANUAL';
+    fixedCostManual?: number | null;
+    // ── Divisão ──
+    atelierPercent?: number;
+    reserveTargetMonths?: number;
+    excludeUndeliveredSignals?: boolean;
+    coverLossWithReserve?: boolean;
+    carryLossToNextMonth?: boolean;
+    // ── Maquininha ──
+    cardDebitFeePercent?: number;
+    cardCreditFeePercent?: number;
+    cardDebitDays?: number;
+    cardCreditDays?: number;
   }) {
+    for (const campo of ['cardDebitFeePercent', 'cardCreditFeePercent'] as const) {
+      const valor = data[campo];
+      if (valor !== undefined && (valor < 0 || valor > 100)) {
+        throw new BadRequestException('A taxa do cartão deve estar entre 0 e 100%');
+      }
+    }
+    for (const campo of ['cardDebitDays', 'cardCreditDays'] as const) {
+      const valor = data[campo];
+      if (valor !== undefined && (valor < 0 || valor > 180)) {
+        throw new BadRequestException('O prazo do cartão deve estar entre 0 e 180 dias');
+      }
+    }
+    if (data.fixedCostMode && !['REAL', 'AVERAGE_3M', 'MANUAL'].includes(data.fixedCostMode)) {
+      throw new BadRequestException('Forma de cálculo do custo fixo inválida');
+    }
+    // No modo manual o valor é a única fonte do custo fixo — sem ele o painel
+    // mostraria "preciso faturar R$ 0,00".
+    if (data.fixedCostMode === 'MANUAL' && (data.fixedCostManual ?? null) === null) {
+      throw new BadRequestException('Informe o valor do custo fixo mensal');
+    }
     let info = await this.prisma.businessInfo.findFirst();
     if (!info) {
       return this.prisma.businessInfo.create({ data: { ...data } });

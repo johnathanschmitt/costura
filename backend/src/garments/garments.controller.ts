@@ -1,11 +1,14 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Permissions } from '../common/decorators/roles.decorator';
 import { GarmentsService } from './garments.service';
 
 @ApiTags('garments')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Permissions('read:garments')
 @Controller('garments')
 export class GarmentsController {
   constructor(private service: GarmentsService) {}
@@ -38,12 +41,14 @@ export class GarmentsController {
   }
 
   @ApiOperation({ summary: 'Criar peça' })
+  @Permissions('update:garments')
   @Post()
   create(@Body() body: { name: string; category?: string; description?: string; imageUrl?: string }) {
     return this.service.create(body);
   }
 
   @ApiOperation({ summary: 'Atualizar peça' })
+  @Permissions('update:garments')
   @Put(':id')
   update(
     @Param('id') id: string,
@@ -53,6 +58,7 @@ export class GarmentsController {
   }
 
   @ApiOperation({ summary: 'Remover peça' })
+  @Permissions('delete:garments')
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.service.remove(id);

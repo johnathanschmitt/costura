@@ -208,6 +208,47 @@ export class InventoryService {
     });
   }
 
+  /**
+   * Devolve ao estoque o material que tinha sido baixado para uma OS.
+   *
+   * Usado quando a cliente desiste antes de o material ser cortado ou usado:
+   * o tecido volta para a prateleira e precisa voltar para o saldo, senão o
+   * estoque do sistema fica menor do que a realidade para sempre.
+   */
+  async returnFromWorkOrder(workOrderId: string, userId?: string) {
+    const consumed = await this.prisma.inventoryMovement.findMany({
+      where: { workOrderId, type: MovementType.OUT },
+      select: { productId: true, quantity: true, product: { select: { name: true } } },
+    });
+    if (consumed.length === 0) return { returned: 0, items: [] as { name: string; quantity: string }[] };
+
+    // Junta o mesmo produto baixado em vezes diferentes numa devolução só.
+    const byProduct = new Map<string, { quantity: Prisma.Decimal; name: string }>();
+    for (const m of consumed) {
+      const entry = byProduct.get(m.productId) ?? { quantity: D(0), name: m.product.name };
+      entry.quantity = entry.quantity.plus(m.quantity);
+      byProduct.set(m.productId, entry);
+    }
+
+    const items: { name: string; quantity: string }[] = [];
+    for (const [productId, { quantity, name }] of byProduct) {
+      await this.move({
+        productId,
+        type: MovementType.IN,
+        delta: quantity,
+        userId,
+        data: {
+          reason: 'Devolução por cancelamento de OS',
+          workOrderId,
+          occurredAt: new Date(),
+        },
+      });
+      items.push({ name, quantity: quantity.toString() });
+    }
+
+    return { returned: items.length, items };
+  }
+
   /** Ajuste de inventário: informa-se a contagem física e o sistema apura a diferença. */
   async adjust(dto: AdjustStockDto, userId?: string) {
     const inventory = await this.prisma.inventory.findUnique({ where: { productId: dto.productId } });

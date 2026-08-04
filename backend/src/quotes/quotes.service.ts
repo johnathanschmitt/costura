@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FinancialService } from '../financial/financial.service';
+import { DEFAULT_INCOME_CATEGORY } from '../financial/financial.constants';
 import {
   ConvertDto, CreateQuoteDto, ListQuotesDto, QuoteItemDto, ShareQuoteDto, UpdateQuoteDto,
 } from './dto/quotes.dto';
@@ -434,6 +435,10 @@ export class QuotesService {
             description: `${created.number} — sinal`,
             amount: downPayment,
             dueDate: new Date(),
+            category: DEFAULT_INCOME_CATEGORY,
+            // Marcar como sinal é o que permite o painel avisar que esse
+            // dinheiro ainda é de uma peça não entregue.
+            isDownPayment: true,
           },
           select: { id: true },
         });
@@ -446,6 +451,7 @@ export class QuotesService {
             description: `${created.number} — saldo`,
             amount: balance,
             dueDate: balanceDue,
+            category: DEFAULT_INCOME_CATEGORY,
           },
         });
       }

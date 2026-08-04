@@ -65,9 +65,11 @@ export default function CashClosingReportPage() {
             <Typography variant="h6" fontWeight={700}>FECHAMENTO DE CAIXA</Typography>
             <Typography variant="body2">
               Abertura: {dayjs(reg.openedAt).format('DD/MM/YYYY HH:mm')}
+              {reg.openedBy && ` — ${reg.openedBy.name}`}
             </Typography>
             <Typography variant="body2">
               Fechamento: {reg.closedAt ? dayjs(reg.closedAt).format('DD/MM/YYYY HH:mm') : '—'}
+              {reg.closedBy && ` — ${reg.closedBy.name}`}
             </Typography>
           </Box>
         </Box>
@@ -84,6 +86,7 @@ export default function CashClosingReportPage() {
           {line('Despesas pagas', b.expenses, '−')}
           {line('Contas pagas', b.paidAccounts, '−')}
           {line('Sangrias', b.withdrawals, '−')}
+          {toNumber(b.reversals) > 0 && line('Estornos de baixa', b.reversals, '−')}
           <Divider sx={{ my: 1 }} />
           <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
             <Typography variant="body1" fontWeight={700}>Esperado na gaveta</Typography>

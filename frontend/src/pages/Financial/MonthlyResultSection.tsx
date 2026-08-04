@@ -2,11 +2,10 @@ import { useState } from 'react';
 import {
   Box, Grid, Card, CardContent, Typography, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Paper, Chip, IconButton, Skeleton,
-  LinearProgress, Divider, Button, Tooltip, Avatar,
+  LinearProgress, Button, Tooltip,
 } from '@mui/material';
 import {
-  ChevronLeft, ChevronRight, TrendingUp, TrendingDown, TrendingFlat,
-  Print, Person,
+  ChevronLeft, ChevronRight, TrendingUp, TrendingDown, TrendingFlat, Print,
 } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -38,18 +37,6 @@ function Variation({ value, invert }: { value: unknown; invert?: boolean }) {
   );
 }
 
-function Metric({ label, value, hint, color }: any) {
-  return (
-    <Card variant="outlined" sx={{ height: '100%' }}>
-      <CardContent>
-        <Typography variant="body2" color="text.secondary">{label}</Typography>
-        <Typography variant="h6" fontWeight={700} color={color}>{value}</Typography>
-        {hint && <Typography variant="caption" color="text.secondary">{hint}</Typography>}
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function MonthlyResultSection() {
   const navigate = useNavigate();
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
@@ -74,7 +61,6 @@ export default function MonthlyResultSection() {
 
   const c = data.current;
   const result = toNumber(c.result);
-  const ind = data.indicators;
   const maxHistory = Math.max(
     ...data.history.map((h: any) => Math.max(toNumber(h.income), toNumber(h.expense))), 1,
   );
@@ -149,103 +135,48 @@ export default function MonthlyResultSection() {
         </Grid>
       </Grid>
 
+      {/*
+        Aqui existiam dois painéis que não ajudavam a decidir nada: o "rateio de
+        cada real", que repetia as despesas do DRE em percentual, e os
+        indicadores comerciais (ticket médio, conversão de orçamento, produção
+        por costureira), que são assunto de Relatórios e não de financeiro.
+        No lugar ficou a pergunta que o mês precisa responder: de onde veio e
+        para onde foi o dinheiro, em reais.
+      */}
       <Grid container spacing={3}>
-        {/* 2. Rateio — para onde foi cada real */}
         <Grid item xs={12} md={6}>
           <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-            <Typography variant="subtitle1" fontWeight={600}>Para onde foi o dinheiro</Typography>
-            <Typography variant="caption" color="text.secondary" display="block" mb={2}>
-              De cada {fmt(c.income)} que entrou, esta é a fatia de cada destino.
-            </Typography>
-
-            {data.allocation.length === 0 ? (
+            <Typography variant="subtitle1" fontWeight={600} mb={1.5}>De onde veio</Typography>
+            {c.incomeByCategory.length === 0 ? (
               <Typography variant="body2" color="text.secondary" py={2}>
-                Nenhuma movimentação no mês.
+                Nada entrou no mês.
               </Typography>
-            ) : data.allocation.map((a: any) => (
-              <Box key={a.category} sx={{ mb: 1.5 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
-                  <Typography variant="body2" fontWeight={a.kind === 'PROFIT' ? 700 : 400}>
-                    {a.category}
-                  </Typography>
-                  <Typography variant="body2" fontWeight={600}>
-                    {fmt(a.amount)} · {toNumber(a.share).toFixed(1)}%
-                  </Typography>
-                </Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={Math.min(toNumber(a.share), 100)}
-                  color={a.kind === 'PROFIT' ? 'success' : 'error'}
-                  sx={{ height: 8, borderRadius: 1 }}
-                />
+            ) : c.incomeByCategory.map((r: any) => (
+              <Box key={r.category} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.75 }}>
+                <Typography variant="body2">{r.category}</Typography>
+                <Typography variant="body2" fontWeight={600} color="success.main">{fmt(r.amount)}</Typography>
               </Box>
             ))}
+          </Paper>
+        </Grid>
 
+        <Grid item xs={12} md={6}>
+          <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+            <Typography variant="subtitle1" fontWeight={600} mb={1.5}>Para onde foi</Typography>
+            {c.expenseByCategory.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" py={2}>
+                Nenhuma despesa no mês.
+              </Typography>
+            ) : c.expenseByCategory.map((r: any) => (
+              <Box key={r.category} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.75 }}>
+                <Typography variant="body2">{r.category}</Typography>
+                <Typography variant="body2" fontWeight={600} color="error.main">{fmt(r.amount)}</Typography>
+              </Box>
+            ))}
             {result < 0 && (
               <Typography variant="caption" color="error.main" display="block" mt={1}>
                 As saídas passaram do que entrou — o mês fechou negativo em {fmt(Math.abs(result))}.
               </Typography>
-            )}
-          </Paper>
-        </Grid>
-
-        {/* 4. Indicadores do mês */}
-        <Grid item xs={12} md={6}>
-          <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-            <Typography variant="subtitle1" fontWeight={600} mb={2}>Indicadores do mês</Typography>
-            <Grid container spacing={1.5}>
-              <Grid item xs={6}>
-                <Metric
-                  label="Peças entregues"
-                  value={ind.deliveredCount}
-                  hint={`${fmt(ind.deliveredValue)} no total`}
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <Metric
-                  label="Ticket médio"
-                  value={fmt(ind.averageTicket)}
-                  hint="por peça entregue"
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <Metric
-                  label="Margem de lucro"
-                  value={`${toNumber(c.margin).toFixed(1)}%`}
-                  hint="do que entrou, virou sobra"
-                  color={result >= 0 ? 'success.main' : 'error.main'}
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <Metric
-                  label="Orçamentos virando OS"
-                  value={`${toNumber(ind.conversionRate).toFixed(0)}%`}
-                  hint={`${ind.quotesConverted} de ${ind.quotesCreated} feitos no mês`}
-                />
-              </Grid>
-            </Grid>
-
-            {ind.bySeamstress.length > 0 && (
-              <>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="subtitle2" fontWeight={600} mb={1}>
-                  Produção por costureira
-                </Typography>
-                {ind.bySeamstress.map((s: any) => (
-                  <Box key={s.name} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.75 }}>
-                    <Avatar sx={{ width: 28, height: 28, fontSize: 12, bgcolor: 'secondary.main' }}>
-                      {s.name === 'Sem costureira' ? <Person sx={{ fontSize: 16 }} /> : s.name.charAt(0)}
-                    </Avatar>
-                    <Typography variant="body2" sx={{ flexGrow: 1 }}>{s.name}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {s.count} peça{s.count > 1 ? 's' : ''}
-                    </Typography>
-                    <Typography variant="body2" fontWeight={600} sx={{ minWidth: 92, textAlign: 'right' }}>
-                      {fmt(s.value)}
-                    </Typography>
-                  </Box>
-                ))}
-              </>
             )}
           </Paper>
         </Grid>

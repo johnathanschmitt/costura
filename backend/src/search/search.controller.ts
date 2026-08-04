@@ -1,6 +1,7 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { SearchService } from './search.service';
 
 @ApiTags('search')
@@ -12,7 +13,7 @@ export class SearchController {
 
   @ApiOperation({ summary: 'Busca global' })
   @Get()
-  search(@Query('q') q: string) {
-    return this.service.search(q);
+  search(@Query('q') q: string, @CurrentUser() user: any) {
+    return this.service.search(q, user?.permissions ?? []);
   }
 }

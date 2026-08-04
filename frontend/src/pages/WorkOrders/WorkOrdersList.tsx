@@ -4,7 +4,9 @@ import {
   TableRow, Paper, IconButton, Chip, InputAdornment, Skeleton, Select,
   MenuItem, FormControl, InputLabel, TablePagination, Tooltip, Typography, Avatar,
 } from '@mui/material';
-import { Search, Edit, Delete, PlayArrow, Done, LocalShipping, Receipt } from '@mui/icons-material';
+import {
+  Search, Edit, Delete, PlayArrow, Done, LocalShipping, Receipt, Block,
+} from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -13,6 +15,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 import { useToast } from '../../store/toast.store';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import DeliverDialog from './DeliverDialog';
+import CancelDialog from './CancelDialog';
 import { apiError, PRIORITY_MAP, STATUS_MAP } from './constants';
 
 export default function WorkOrdersList() {
@@ -21,6 +24,7 @@ export default function WorkOrdersList() {
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(20);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [cancelTarget, setCancelTarget] = useState<any>(null);
   const [deliverTarget, setDeliverTarget] = useState<any>(null);
   const debouncedSearch = useDebounce(search, 400);
   const navigate = useNavigate();
@@ -157,6 +161,16 @@ export default function WorkOrdersList() {
                         <Edit fontSize="small" />
                       </IconButton>
                     </Tooltip>
+                    {/* Desistência da cliente é cancelamento, não remoção: a OS
+                        continua no histórico, com o motivo e o acerto do que já
+                        foi pago. */}
+                    {wo.status !== 'DELIVERED' && wo.status !== 'CANCELLED' && (
+                      <Tooltip title="Cliente desistiu — cancelar OS">
+                        <IconButton size="small" color="warning" onClick={() => setCancelTarget(wo)}>
+                          <Block fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Remover">
                       <IconButton size="small" color="error" onClick={() => setDeleteTarget(wo)}>
                         <Delete fontSize="small" />
@@ -200,6 +214,8 @@ export default function WorkOrdersList() {
       />
 
       <DeliverDialog workOrder={deliverTarget} onClose={() => setDeliverTarget(null)} onDelivered={refresh} />
+
+      <CancelDialog workOrder={cancelTarget} onClose={() => setCancelTarget(null)} onCancelled={refresh} />
     </Box>
   );
 }

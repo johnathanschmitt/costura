@@ -5,12 +5,26 @@
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
   },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  },
   "scripts": {
     "build": "nest build",
     "dev": "nest start --watch",
     "start": "node dist/main",
     "lint": "eslint \"{src,test}/**/*.ts\"",
     "test": "jest",
+    "test:watch": "jest --watch",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
@@ -46,6 +60,7 @@
     "@nestjs/cli": "^10.3.2",
     "@nestjs/testing": "^10.3.0",
     "@types/bcryptjs": "^2.4.6",
+    "@types/jest": "^29.5.14",
     "@types/multer": "^1.4.11",
     "@types/node": "^20.11.20",
     "@types/passport-jwt": "^4.0.1",

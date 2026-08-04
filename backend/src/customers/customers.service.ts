@@ -71,8 +71,26 @@ export class CustomersService {
       where: { customerId },
       orderBy: { version: 'desc' },
     });
+    const { custom, ...rest } = data;
     return this.prisma.bodyMeasurement.create({
-      data: { ...data, customerId, version: (last?.version ?? 0) + 1 },
+      data: {
+        ...rest,
+        custom: this.normalizeCustom(custom),
+        customerId,
+        version: (last?.version ?? 0) + 1,
+      },
     });
+  }
+
+  /** Mantém só os tipos extras com nome preenchido e valor numérico (ou vazio). */
+  private normalizeCustom(custom: any) {
+    if (!Array.isArray(custom)) return null;
+    const clean = custom
+      .map((f: any) => ({
+        label: String(f?.label ?? '').trim(),
+        value: f?.value === '' || f?.value == null ? null : Number(f.value),
+      }))
+      .filter(f => f.label && (f.value === null || Number.isFinite(f.value)));
+    return clean.length ? clean : null;
   }
 }

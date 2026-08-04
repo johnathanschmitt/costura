@@ -7,6 +7,8 @@ interface User {
   email: string;
   role: string;
   avatarUrl?: string;
+  /** No formato `ação:recurso`, ex.: `read:financial`. */
+  permissions?: string[];
 }
 
 interface AuthState {

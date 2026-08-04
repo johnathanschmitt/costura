@@ -22,7 +22,12 @@ export class AuthService {
     );
     return {
       access_token: this.jwt.sign({ sub: user.id, email: user.email, role: user.role.name, permissions }),
-      user: { id: user.id, name: user.name, email: user.email, role: user.role.name, avatarUrl: user.avatarUrl },
+      // As permissões vão junto para a tela poder esconder o que a usuária não
+      // pode acessar. Quem decide de verdade é o backend — isto é só UX.
+      user: {
+        id: user.id, name: user.name, email: user.email,
+        role: user.role.name, avatarUrl: user.avatarUrl, permissions,
+      },
     };
   }
 

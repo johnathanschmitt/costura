@@ -273,3 +273,34 @@ export class BoardQueryDto {
   @MaxLength(120)
   search?: string;
 }
+
+/**
+ * Cancelamento por desistência da cliente.
+ *
+ * O motivo é obrigatório: meses depois, "OS cancelada" sem explicação não ajuda
+ * ninguém a entender o que aconteceu — nem a decidir se devolve o sinal.
+ */
+export class CancelWorkOrderDto {
+  @ApiProperty({ example: 'Cliente desistiu — vai fazer a festa em outra data' })
+  @IsString()
+  @MaxLength(300)
+  reason: string;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Devolver à cliente o que ela já pagou. Gera uma conta a pagar; sem isso, o valor ' +
+      'fica com o ateliê como compensação pelo trabalho já feito.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  refundPaid?: boolean;
+
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Devolver ao estoque o material que já tinha sido baixado para esta OS',
+  })
+  @IsOptional()
+  @IsBoolean()
+  returnMaterials?: boolean;
+}

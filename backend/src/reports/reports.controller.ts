@@ -1,16 +1,24 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Permissions } from '../common/decorators/roles.decorator';
 import { ReportsService } from './reports.service';
 
 @ApiTags('reports')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Permissions('read:reports')
 @Controller('reports')
 export class ReportsController {
   constructor(private service: ReportsService) {}
 
+  /**
+   * A tela inicial e o sino são de todo mundo: sem permissão explícita aqui, a
+   * costureira abriria o sistema numa página de erro.
+   */
   @ApiOperation({ summary: 'Dashboard' })
+  @Permissions()
   @Get('dashboard')
   getDashboard() {
     return this.service.getDashboard();
@@ -36,14 +44,8 @@ export class ReportsController {
     return this.service.getTopCustomers(limit ? parseInt(limit) : 10);
   }
 
-  @ApiOperation({ summary: 'Receitas vs despesas por mês' })
-  @ApiQuery({ name: 'year', required: false, type: Number })
-  @Get('income-vs-expenses')
-  getIncomeVsExpenses(@Query('year') year?: string) {
-    return this.service.getIncomeVsExpenses(year ? parseInt(year) : new Date().getFullYear());
-  }
-
   @ApiOperation({ summary: 'Resumo de notificações/alertas' })
+  @Permissions()
   @Get('notifications')
   getNotifications() {
     return this.service.getNotifications();

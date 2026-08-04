@@ -3,19 +3,28 @@ import {
   Box, Card, CardContent, Typography, Button, Chip, Grid,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Table, TableBody, TableCell, TableHead, TableRow, TableContainer,
-  Paper, Divider, Alert, Tooltip,
+  Paper, Divider, Alert, Tooltip, FormControl, InputLabel, Select, MenuItem,
+  Collapse, IconButton,
 } from '@mui/material';
 import MoneyField from '../../components/common/fields/MoneyField';
 import {
   Add, LockOpen, Lock, ArrowUpward, ArrowDownward, InfoOutlined,
-  CallMade, CallReceived, Print,
+  CallMade, CallReceived, Print, Undo,
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import api from '../../services/api';
 import { useToast } from '../../store/toast.store';
+import CategorySelect from './CategorySelect';
+import ReversePaymentDialog from './ReversePaymentDialog';
 import { apiError, fmt, toNumber } from './format';
+
+/** Destinos padronizados — precisam bater com CASH_COUNTERPARTS do backend. */
+const COUNTERPARTS = ['Banco', 'Cofre', 'Fornecedor', 'Retirada de sócia', 'Outro'];
+
+/** Cédulas e moedas em circulação, da maior para a menor. */
+const NOTES = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.25, 0.1, 0.05];
 
 function OpenRegisterDialog({ open, onClose, onConfirm, loading, error }: any) {
   const [balance, setBalance] = useState<number | null>(0);
@@ -89,18 +98,22 @@ function AddTransactionDialog({ open, onClose, onConfirm, loading, error }: any)
             color="success"
             fullWidth
             startIcon={<ArrowUpward />}
-            onClick={() => setType('INCOME')}
+            // Trocar o tipo troca a lista de categorias: a que estava escolhida
+            // não existe do outro lado.
+            onClick={() => { setType('INCOME'); setCategory(''); }}
           >Entrada</Button>
           <Button
             variant={type === 'EXPENSE' ? 'contained' : 'outlined'}
             color="error"
             fullWidth
             startIcon={<ArrowDownward />}
-            onClick={() => setType('EXPENSE')}
+            onClick={() => { setType('EXPENSE'); setCategory(''); }}
           >Saída</Button>
         </Box>
         <TextField label="Descrição" value={description} onChange={e => setDescription(e.target.value)} fullWidth autoFocus required />
-        <TextField label="Categoria" value={category} onChange={e => setCategory(e.target.value)} fullWidth placeholder="Ex: material, troco…" />
+        {/* Categoria da lista, não texto livre: o DRE agrupa pelo nome, então
+            "material" digitado à mão virava uma linha separada de "Materiais". */}
+        <CategorySelect type={type} value={category} onChange={setCategory} size="medium" />
         <MoneyField label="Valor" value={amount} onChange={setAmount} fullWidth required />
       </DialogContent>
       <DialogActions>
@@ -125,15 +138,29 @@ function AddTransactionDialog({ open, onClose, onConfirm, loading, error }: any)
 function TransferDialog({ open, kind, onClose, onConfirm, loading, error, balance }: any) {
   const [amount, setAmount] = useState<number | null>(null);
   const [reason, setReason] = useState('');
+  const [counterpart, setCounterpart] = useState('Banco');
+  const [accountId, setAccountId] = useState('');
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: ['financial-accounts'],
+    queryFn: () => api.get('/financial/accounts').then(r => r.data),
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
-    if (open) { setAmount(null); setReason(''); }
-  }, [open]);
+    if (open) {
+      setAmount(null);
+      setReason('');
+      setCounterpart(kind === 'WITHDRAWAL' ? 'Banco' : 'Cofre');
+      // Sugere a conta padrão: é para lá que o depósito costuma ir.
+      setAccountId((accounts as any[]).find(a => a.isDefault)?.id ?? '');
+    }
+  }, [open, kind, accounts]);
 
   const isWithdrawal = kind === 'WITHDRAWAL';
   const value = amount ?? NaN;
   const exceeds = isWithdrawal && value > balance + 0.005;
-  const valid = value > 0 && reason.trim() && !exceeds;
+  const valid = value > 0 && reason.trim() && counterpart && !exceeds;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -160,11 +187,38 @@ function TransferDialog({ open, kind, onClose, onConfirm, loading, error, balanc
           autoFocus
           fullWidth
         />
+        {/* Sem destino o dinheiro sai da gaveta e some do sistema. Lista fixa
+            porque texto livre não vira relatório. */}
+        <FormControl fullWidth required>
+          <InputLabel>{isWithdrawal ? 'Para onde vai' : 'De onde veio'}</InputLabel>
+          <Select
+            value={counterpart}
+            label={isWithdrawal ? 'Para onde vai' : 'De onde veio'}
+            onChange={e => { setCounterpart(e.target.value); setAccountId(''); }}
+          >
+            {COUNTERPARTS.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+          </Select>
+        </FormControl>
+
+        {/* Escolhendo a conta, o dinheiro que sai da gaveta entra no saldo dela
+            em vez de simplesmente sumir. */}
+        {['Banco', 'Cofre'].includes(counterpart) && (
+          <FormControl fullWidth>
+            <InputLabel>Conta</InputLabel>
+            <Select value={accountId} label="Conta" onChange={e => setAccountId(e.target.value)}>
+              <MenuItem value="">Não registrar em conta</MenuItem>
+              {(accounts as any[])
+                .filter(a => a.active && a.kind !== 'CASH_DRAWER')
+                .map(a => <MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+        )}
+
         <TextField
           label="Motivo"
           value={reason}
           onChange={e => setReason(e.target.value)}
-          placeholder={isWithdrawal ? 'Ex: depósito no banco' : 'Ex: troco para o dia'}
+          placeholder={isWithdrawal ? 'Ex: depósito da semana' : 'Ex: troco para o dia'}
           required
           fullWidth
         />
@@ -174,7 +228,7 @@ function TransferDialog({ open, kind, onClose, onConfirm, loading, error, balanc
         <Button
           variant="contained"
           color={isWithdrawal ? 'warning' : 'primary'}
-          onClick={() => onConfirm({ kind, amount: value, reason })}
+          onClick={() => onConfirm({ kind, amount: value, reason, counterpart, accountId: accountId || undefined })}
           disabled={!valid || loading}
         >
           Registrar
@@ -189,19 +243,39 @@ function TransferDialog({ open, kind, onClose, onConfirm, loading, error, balanc
  * a usuária conta o dinheiro e informa o valor real. A diferença é o resultado
  * que justifica todo o ritual de abrir e fechar o caixa.
  */
-function CloseRegisterDialog({ open, onClose, onConfirm, expected, loading, error }: any) {
+function CloseRegisterDialog({ open, onClose, onConfirm, expected, loading, error, blind }: any) {
   const [counted, setCounted] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
+  const [showNotes, setShowNotes] = useState(false);
+  const [notesCount, setNotesCount] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (open) { setCounted(null); setNotes(''); }
+    if (open) { setCounted(null); setNotes(''); setNotesCount({}); setShowNotes(false); }
   }, [open]);
 
-  const countedValue = counted ?? NaN;
-  const hasCount = counted !== null && !Number.isNaN(countedValue);
+  // Soma da contagem por cédula. Quando a usuária usa esse caminho, ela manda no
+  // valor contado — digitar duas vezes só criaria divergência.
+  const breakdownTotal = NOTES.reduce(
+    (s, note) => s + note * (Number(notesCount[String(note)]) || 0), 0,
+  );
+  const usingBreakdown = showNotes && breakdownTotal > 0;
+  const countedValue = usingBreakdown ? breakdownTotal : (counted ?? NaN);
+
+  const hasCount = !Number.isNaN(countedValue) && (usingBreakdown || counted !== null);
   const difference = hasCount ? countedValue - expected : 0;
   const diverges = hasCount && Math.abs(difference) >= 0.005;
   const needsNotes = diverges && !notes.trim();
+  // Na conferência às cegas o esperado só aparece depois da contagem — mostrar
+  // antes transforma o número da tela na resposta.
+  const revealExpected = !blind || hasCount;
+
+  const breakdownPayload = usingBreakdown
+    ? Object.fromEntries(
+        NOTES
+          .filter(n => Number(notesCount[String(n)]) > 0)
+          .map(n => [String(n), Number(notesCount[String(n)])]),
+      )
+    : undefined;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -213,17 +287,58 @@ function CloseRegisterDialog({ open, onClose, onConfirm, expected, loading, erro
           <Typography variant="caption" color="text.secondary">
             Deveria haver na gaveta
           </Typography>
-          <Typography variant="h5" fontWeight={700}>{fmt(expected)}</Typography>
+          {revealExpected ? (
+            <Typography variant="h5" fontWeight={700}>{fmt(expected)}</Typography>
+          ) : (
+            <Typography variant="h5" fontWeight={700} color="text.disabled">
+              •••••
+              <Typography component="span" variant="caption" color="text.secondary" ml={1}>
+                conte primeiro
+              </Typography>
+            </Typography>
+          )}
         </Box>
 
         <MoneyField
           label="Dinheiro contado"
-          value={counted}
+          value={usingBreakdown ? breakdownTotal : counted}
           onChange={setCounted}
-          helperText="Conte o dinheiro da gaveta e informe o valor real"
+          disabled={usingBreakdown}
+          helperText={
+            usingBreakdown
+              ? 'Somado a partir da contagem por cédula'
+              : 'Conte o dinheiro da gaveta e informe o valor real'
+          }
           autoFocus
           fullWidth
         />
+
+        <Box>
+          <Button size="small" onClick={() => setShowNotes(s => !s)}>
+            {showNotes ? 'ocultar contagem por cédula' : 'contar por cédula'}
+          </Button>
+          <Collapse in={showNotes}>
+            <Grid container spacing={1} sx={{ mt: 0.5 }}>
+              {NOTES.map(note => (
+                <Grid item xs={4} key={note}>
+                  <TextField
+                    label={note >= 1 ? `R$ ${note}` : `${(note * 100).toFixed(0)} centavos`}
+                    value={notesCount[String(note)] ?? ''}
+                    onChange={e => setNotesCount(c => ({ ...c, [String(note)]: e.target.value.replace(/\D/g, '') }))}
+                    size="small"
+                    fullWidth
+                    inputProps={{ inputMode: 'numeric' }}
+                  />
+                </Grid>
+              ))}
+              <Grid item xs={12}>
+                <Typography variant="body2" fontWeight={600}>
+                  Total contado: {fmt(breakdownTotal)}
+                </Typography>
+              </Grid>
+            </Grid>
+          </Collapse>
+        </Box>
 
         {hasCount && (
           diverges ? (
@@ -254,7 +369,11 @@ function CloseRegisterDialog({ open, onClose, onConfirm, expected, loading, erro
         <Button
           variant="contained"
           color="error"
-          onClick={() => onConfirm({ countedBalance: countedValue, notes: notes || undefined })}
+          onClick={() => onConfirm({
+            countedBalance: countedValue,
+            countBreakdown: breakdownPayload,
+            notes: notes || undefined,
+          })}
           disabled={!hasCount || needsNotes || loading}
         >
           Fechar Caixa
@@ -272,6 +391,7 @@ export default function CashRegisterSection() {
   const [txDialog, setTxDialog] = useState(false);
   const [closeDialog, setCloseDialog] = useState(false);
   const [transferKind, setTransferKind] = useState<'WITHDRAWAL' | 'SUPPLY' | null>(null);
+  const [reversing, setReversing] = useState<any | null>(null);
   const [dialogError, setDialogError] = useState('');
 
   const { data: current } = useQuery({
@@ -360,8 +480,9 @@ export default function CashRegisterSection() {
                 <CardContent>
                   <Typography variant="caption" color="text.secondary">Abertura</Typography>
                   <Typography variant="h5" fontWeight={700}>{fmt(current.openingBalance)}</Typography>
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="caption" color="text.secondary" display="block">
                     {dayjs(current.openedAt).format('DD/MM/YYYY HH:mm')}
+                    {current.openedBy && ` · ${current.openedBy.name}`}
                   </Typography>
                 </CardContent>
               </Card>
@@ -436,14 +557,16 @@ export default function CashRegisterSection() {
                   <TableCell>Hora</TableCell>
                   <TableCell>Descrição</TableCell>
                   <TableCell>Categoria</TableCell>
+                  <TableCell>Quem</TableCell>
                   <TableCell>Origem</TableCell>
                   <TableCell align="right">Valor</TableCell>
+                  <TableCell />
                 </TableRow>
               </TableHead>
               <TableBody>
                 {transactions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} align="center">
+                    <TableCell colSpan={7} align="center">
                       <Typography variant="body2" color="text.secondary" py={2}>
                         Nenhuma movimentação de dinheiro ainda
                       </Typography>
@@ -456,11 +579,19 @@ export default function CashRegisterSection() {
                     <TableCell>{t.description}</TableCell>
                     <TableCell>{t.category ?? '—'}</TableCell>
                     <TableCell>
+                      <Typography variant="caption" color="text.secondary">
+                        {t.user?.name ?? '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
                       <Chip
-                        label={t.payment ? 'Baixa de conta' : 'Avulso'}
+                        label={
+                          t.kind === 'REVERSAL' ? 'Estorno'
+                            : t.payment ? 'Baixa de conta' : 'Avulso'
+                        }
                         size="small"
                         variant="outlined"
-                        color={t.payment ? 'primary' : 'default'}
+                        color={t.kind === 'REVERSAL' ? 'warning' : t.payment ? 'primary' : 'default'}
                       />
                     </TableCell>
                     <TableCell align="right">
@@ -468,9 +599,24 @@ export default function CashRegisterSection() {
                         variant="body2"
                         fontWeight={600}
                         color={t.type === 'INCOME' ? 'success.main' : 'error.main'}
+                        sx={{ textDecoration: t.payment?.reversedAt ? 'line-through' : undefined }}
                       >
                         {t.type === 'INCOME' ? '+' : '-'} {fmt(t.amount)}
                       </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      {/* Estorno só faz sentido para baixa de conta: lançamento
+                          avulso errado se resolve com um lançamento contrário. */}
+                      {t.payment && !t.payment.reversedAt && (
+                        <Tooltip title="Estornar esta baixa">
+                          <IconButton size="small" onClick={() => setReversing(t.payment)}>
+                            <Undo fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {t.payment?.reversedAt && (
+                        <Chip size="small" label="estornada" color="warning" variant="outlined" />
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -507,9 +653,12 @@ export default function CashRegisterSection() {
         onClose={() => setCloseDialog(false)}
         onConfirm={(body: any) => closeMutation.mutate(body)}
         expected={expected}
+        blind={Boolean(current?.blindCashCount)}
         loading={closeMutation.isPending}
         error={dialogError}
       />
+
+      <ReversePaymentDialog payment={reversing} onClose={() => setReversing(null)} />
 
       <TransferDialog
         open={Boolean(transferKind)}

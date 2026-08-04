@@ -62,14 +62,24 @@ model User {
   inventoryMovements InventoryMovement[]
   assignedWorkOrders  WorkOrder[] @relation("WorkOrderAssignee")
   deliveredWorkOrders WorkOrder[] @relation("WorkOrderDeliverer")
+  cancelledWorkOrders WorkOrder[] @relation("WorkOrderCanceller")
   workOrderUpdates    WorkOrderUpdate[]
   inventoryCounts     InventoryCount[]
   quoteSends          QuoteSend[]
+  cashTransactions    CashTransaction[]
+  accountTransfers    AccountTransfer[]
+  cashRegistersOpened CashRegister[] @relation("CashOpenedBy")
+  cashRegistersClosed CashRegister[] @relation("CashClosedBy")
+  paymentsReversed    Payment[]      @relation("PaymentReversedBy")
   /// Horas de produção que esta costureira dá conta por dia.
   dailyCapacityHours  Decimal   @default(8) @db.Decimal(4, 2)
   /// Sócia do ateliê: participa da divisão do resultado no fim do mês.
   isPartner           Boolean   @default(false)
+  /// Percentual do resultado que cabe a esta sócia. A soma dos percentuais das
+  /// sócias mais o do ateliê tem que fechar 100%.
+  distributionPercent Decimal?  @db.Decimal(5, 2)
   distributionShares  DistributionShare[]
+  partnerPayouts      PartnerPayout[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   deletedAt    DateTime?
@@ -117,6 +127,8 @@ model BodyMeasurement {
   thigh        Float?
   neckCirc     Float?
   wrist        Float?
+  /// Tipos de medida extras informados pelo ateliê: [{ label, value }]
+  custom       Json?
   notes        String?
   version      Int      @default(1)
   takenAt      DateTime @default(now())
@@ -359,6 +371,13 @@ model WorkOrder {
   // Entrega: quem do ateliê entregou e quem retirou.
   deliveredById      String?
   deliveredBy        User?               @relation("WorkOrderDeliverer", fields: [deliveredById], references: [id])
+  // ── Cancelamento ──
+  // A cliente pode desistir. A OS não é apagada: fica cancelada, com o motivo,
+  // porque o trabalho já feito e o dinheiro já movimentado continuam existindo.
+  cancelledAt        DateTime?
+  cancelReason       String?
+  cancelledById      String?
+  cancelledBy        User?               @relation("WorkOrderCanceller", fields: [cancelledById], references: [id])
   receivedBy         String?
   // Andamento da produção, em passos de 25%.
   progressPct        Int                 @default(0)
@@ -481,6 +500,66 @@ enum ApptStatus {
 
 // ── Financeiro ────────────────────────────────────────────────────────────────
 
+/// Onde o dinheiro fica: a gaveta, a conta do banco, a chave PIX, o cofre e a
+/// reserva do ateliê. Antes só a gaveta tinha saldo — o dinheiro que entrava por
+/// Pix ou cartão virava um pagamento e não somava em lugar nenhum.
+model FinancialAccount {
+  id             String            @id @default(cuid())
+  name           String            @unique
+  kind           AccountKind
+  active         Boolean           @default(true)
+  /// Saldo que já existia quando a conta foi cadastrada.
+  openingBalance Decimal           @default(0) @db.Decimal(10, 2)
+  /// Conta sugerida para recebimentos que não são em espécie.
+  isDefault      Boolean           @default(false)
+  /// Contas do sistema (Gaveta, Reserva do ateliê) não podem ser removidas.
+  isSystem       Boolean           @default(false)
+  /// Até quando o extrato foi conferido contra o extrato do banco. O que vier
+  /// depois desta data ainda não passou pelos olhos de ninguém.
+  reconciledUntil DateTime?
+  order          Int               @default(0)
+  payments       Payment[]
+  transfersOut   AccountTransfer[] @relation("TransferFrom")
+  transfersIn    AccountTransfer[] @relation("TransferTo")
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@map("financial_accounts")
+}
+
+enum AccountKind {
+  /// A gaveta do balcão — o que o caixa controla.
+  CASH_DRAWER
+  BANK
+  /// Carteira digital / chave PIX que não cai direto no banco.
+  WALLET
+  SAFE
+  /// Reserva do ateliê: a parte do resultado que não é dividida.
+  RESERVE
+}
+
+/// Dinheiro que muda de lugar sem ser receita nem despesa: sangria da gaveta
+/// para o banco, aporte do banco para a reserva, troco levado para o caixa.
+model AccountTransfer {
+  id            String           @id @default(cuid())
+  fromAccountId String
+  fromAccount   FinancialAccount @relation("TransferFrom", fields: [fromAccountId], references: [id])
+  toAccountId   String
+  toAccount     FinancialAccount @relation("TransferTo", fields: [toAccountId], references: [id])
+  amount        Decimal          @db.Decimal(10, 2)
+  reason        String
+  /// Conferido contra o extrato do banco.
+  reconciledAt  DateTime?
+  /// Lançamento do caixa que originou a transferência, quando veio de sangria.
+  cashTransactionId String?      @unique
+  userId        String?
+  user          User?            @relation(fields: [userId], references: [id])
+  createdAt     DateTime         @default(now())
+
+  @@index([createdAt])
+  @@map("account_transfers")
+}
+
 model CashRegister {
   id             String             @id @default(cuid())
   openedAt       DateTime           @default(now())
@@ -494,6 +573,14 @@ model CashRegister {
   difference     Decimal?           @db.Decimal(10, 2)
   status         CashRegisterStatus @default(OPEN)
   notes          String?
+  /// Quem abriu e quem fechou. Num caixa com mais de uma pessoa, é o que
+  /// permite conversar sobre uma diferença sem adivinhação.
+  openedById     String?
+  openedBy       User?              @relation("CashOpenedBy", fields: [openedById], references: [id])
+  closedById     String?
+  closedBy       User?              @relation("CashClosedBy", fields: [closedById], references: [id])
+  /// Contagem por cédula informada no fechamento: { "100": 3, "50": 2, ... }.
+  countBreakdown Json?
   transactions   CashTransaction[]
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
@@ -520,6 +607,12 @@ model CashTransaction {
   kind           CashMovementKind @default(OTHER)
   referenceId    String?
   referenceType  String?
+  /// Para onde foi a sangria (ou de onde veio o suprimento): banco, cofre,
+  /// fornecedor, retirada de sócia. Sem isso o dinheiro sai da gaveta e some.
+  counterpart    String?
+  /// Quem lançou.
+  userId         String?
+  user           User?           @relation(fields: [userId], references: [id])
   payment        Payment?
   createdAt      DateTime        @default(now())
 
@@ -536,6 +629,9 @@ enum CashMovementKind {
   SUPPLY
   /// Espelho de uma baixa de conta a receber ou a pagar.
   ACCOUNT
+  /// Contrapartida de uma baixa estornada: acerta a gaveta sem virar resultado
+  /// (o pagamento estornado já saiu das somas).
+  REVERSAL
   OTHER
 }
 
@@ -570,10 +666,32 @@ model Payment {
   amountTendered    Decimal?           @db.Decimal(10, 2)
   changeGiven       Decimal?           @db.Decimal(10, 2)
   paidAt            DateTime           @default(now())
+  /// Em qual conta o dinheiro entrou (ou de qual saiu). Espécie vai para a
+  /// gaveta; Pix, cartão e transferência, para a conta escolhida.
+  accountId         String?
+  account           FinancialAccount?  @relation(fields: [accountId], references: [id])
   // Preenchido apenas quando a baixa foi em espécie e havia caixa aberto.
   cashTransactionId String?            @unique
   cashTransaction   CashTransaction?   @relation(fields: [cashTransactionId], references: [id])
   notes             String?
+  // ── Cartão ──
+  // Na maquininha o que a cliente paga não é o que cai na conta: a taxa fica
+  // com a adquirente e o líquido só chega dias depois.
+  /// Taxa retida pela maquininha nesta venda.
+  feeAmount         Decimal?           @db.Decimal(10, 2)
+  /// O que efetivamente cai na conta (bruto − taxa).
+  netAmount         Decimal?           @db.Decimal(10, 2)
+  /// Data em que o dinheiro fica disponível. Até lá não entra no saldo.
+  availableAt       DateTime?
+  /// Conferido contra o extrato do banco.
+  reconciledAt      DateTime?
+  // ── Estorno ──
+  // A baixa errada não é apagada: fica marcada como estornada e sai de todas as
+  // somas. Apagar esconderia que houve o erro.
+  reversedAt        DateTime?
+  reversedReason    String?
+  reversedById      String?
+  reversedBy        User?              @relation("PaymentReversedBy", fields: [reversedById], references: [id])
   createdAt         DateTime           @default(now())
 
   @@index([paidAt])
@@ -642,6 +760,7 @@ model AccountPayable {
   parentId      String?
   parent        AccountPayable?  @relation("PayableRecurrence", fields: [parentId], references: [id])
   occurrences   AccountPayable[] @relation("PayableRecurrence")
+  attachments   Attachment[]
   notes         String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -672,9 +791,19 @@ model MonthlyDistribution {
   valuePerPart  Decimal  @db.Decimal(10, 2)
   /// Parte que fica no ateliê para as despesas.
   atelierShare  Decimal  @db.Decimal(10, 2)
+  /// Percentual do ateliê aplicado neste fechamento. Guardado aqui para que
+  /// mudar a regra depois não reescreva o que já foi acertado.
+  atelierPercent Decimal? @db.Decimal(5, 2)
+  /// Resultado bruto do mês, antes de tirar os sinais e o prejuízo anterior.
+  grossResult    Decimal? @db.Decimal(10, 2)
+  /// Sinais de peças não entregues descontados do bolo.
+  withheldSignals Decimal? @db.Decimal(10, 2)
+  /// Prejuízo de meses anteriores abatido neste fechamento.
+  carryOverUsed   Decimal? @db.Decimal(10, 2)
   notes         String?
   closedAt      DateTime @default(now())
   shares        DistributionShare[]
+  payouts       PartnerPayout[]
 
   @@map("monthly_distributions")
 }
@@ -688,12 +817,66 @@ model DistributionShare {
   /// Nome no momento do fechamento, para o histórico não mudar depois.
   name           String
   amount         Decimal             @db.Decimal(10, 2)
+  /// Percentual aplicado a esta sócia no fechamento.
+  percent        Decimal?            @db.Decimal(5, 2)
   /// Produção da sócia no mês, para leitura junto do valor.
   deliveredCount Int                 @default(0)
   deliveredValue Decimal             @default(0) @db.Decimal(10, 2)
 
   @@unique([distributionId, userId])
   @@map("distribution_shares")
+}
+
+/// Retirada da sócia referente a um mês fechado.
+///
+/// É o que impede dividir o mesmo dinheiro duas vezes: enquanto `paidAt` for
+/// nulo, o valor continua devido a ela e aparece como "a retirar".
+model PartnerPayout {
+  id             String              @id @default(cuid())
+  distributionId String
+  distribution   MonthlyDistribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                @relation(fields: [userId], references: [id])
+  amount         Decimal             @db.Decimal(10, 2)
+  paidAt         DateTime?
+  /// De qual conta o dinheiro saiu quando a sócia retirou.
+  accountId      String?
+  notes          String?
+  createdAt      DateTime            @default(now())
+
+  @@unique([distributionId, userId])
+  @@map("partner_payouts")
+}
+
+/// Regra de divisão válida só para um mês.
+///
+/// Existe para o caso pontual — uma sócia afastada em julho, por exemplo — sem
+/// mexer na regra padrão nem nos meses já fechados.
+model MonthlyDistributionRule {
+  id             String   @id @default(cuid())
+  /// Mês no formato AAAA-MM.
+  month          String   @unique
+  atelierPercent Decimal  @db.Decimal(5, 2)
+  /// [{ userId, percent }] — congelado como veio da tela.
+  shares         Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("monthly_distribution_rules")
+}
+
+/// Prejuízo de um mês que a reserva não cobriu e será abatido do próximo
+/// resultado antes de dividir.
+model DistributionCarryOver {
+  id        String   @id @default(cuid())
+  /// Mês que gerou o prejuízo (AAAA-MM).
+  month     String   @unique
+  amount    Decimal  @db.Decimal(10, 2)
+  /// Mês em que foi abatido; nulo enquanto ainda pesa.
+  settledIn String?
+  createdAt DateTime @default(now())
+
+  @@map("distribution_carry_overs")
 }
 
 enum Recurrence {
@@ -710,6 +893,10 @@ model FinancialCategory {
   active   Boolean      @default(true)
   /// Categorias padrão do sistema não podem ser removidas.
   isSystem Boolean      @default(false)
+  /// Despesa que se repete todo mês (aluguel, luz, água, internet). A soma
+  /// delas é o custo fixo, que define quanto o ateliê precisa faturar para
+  /// empatar. Não faz sentido em categoria de receita.
+  isFixed  Boolean      @default(false)
   createdAt DateTime    @default(now())
 
   @@unique([name, type])
@@ -740,6 +927,9 @@ model Attachment {
   inventoryMovement   InventoryMovement? @relation(fields: [inventoryMovementId], references: [id])
   workOrderUpdateId   String?
   workOrderUpdate     WorkOrderUpdate?   @relation(fields: [workOrderUpdateId], references: [id])
+  /// Comprovante ou nota fiscal da despesa.
+  accountPayableId    String?
+  accountPayable      AccountPayable?    @relation(fields: [accountPayableId], references: [id])
   // Separa foto de referência de foto do tecido recebido, etc.
   kind                AttachmentKind     @default(DOCUMENT)
   caption             String?
@@ -782,6 +972,39 @@ model BusinessInfo {
   queueAlertDays    Int @default(7)
   /// Modelo da mensagem de WhatsApp. Aceita {cliente} {numero} {total} {link} {ateliê}.
   whatsappTemplate  String? @db.Text
+  /// Conferência às cegas: o fechamento não mostra o saldo esperado até a
+  /// contagem ser informada. Sem isso, o número na tela vira a resposta.
+  blindCashCount    Boolean  @default(false)
+  // ── Parâmetros do financeiro ──
+  /// Quanto o ateliê quer ganhar por hora de costura. Sem meta, o painel mostra
+  /// o realizado sem comparação.
+  targetHourlyRate  Decimal? @db.Decimal(10, 2)
+  /// Como estimar o custo fixo do mês: REAL (o que foi lançado), AVERAGE_3M
+  /// (média dos últimos 3 meses, para o mês sem a conta não derrubar a meta) ou
+  /// MANUAL (valor informado).
+  fixedCostMode     String   @default("AVERAGE_3M")
+  fixedCostManual   Decimal? @db.Decimal(10, 2)
+  // ── Divisão do resultado ──
+  /// Percentual do resultado que fica na reserva do ateliê.
+  atelierPercent    Decimal  @default(20) @db.Decimal(5, 2)
+  /// Meta de reserva, em meses de custo fixo.
+  reserveTargetMonths Int    @default(3)
+  /// Sinal de peça ainda não entregue sai do bolo a dividir.
+  excludeUndeliveredSignals Boolean @default(true)
+  /// Mês negativo é coberto pela reserva do ateliê...
+  coverLossWithReserve      Boolean @default(true)
+  /// ...e o que a reserva não cobrir abate do mês seguinte.
+  carryLossToNextMonth      Boolean @default(true)
+  // ── Maquininha ──
+  // Zerado, o cartão se comporta como antes: valor cheio, disponível na hora.
+  /// Taxa do débito, em % sobre a venda.
+  cardDebitFeePercent   Decimal @default(0) @db.Decimal(5, 2)
+  /// Taxa do crédito, em % sobre a venda.
+  cardCreditFeePercent  Decimal @default(0) @db.Decimal(5, 2)
+  /// Dias até o dinheiro do débito cair na conta.
+  cardDebitDays         Int     @default(0)
+  /// Dias até o dinheiro do crédito cair na conta.
+  cardCreditDays        Int     @default(0)
   updatedAt   DateTime @updatedAt
 
   @@map("business_info")

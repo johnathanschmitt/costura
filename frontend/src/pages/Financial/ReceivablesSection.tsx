@@ -6,7 +6,7 @@ import {
   Alert, Skeleton, TablePagination, IconButton, Tooltip, Divider,
 } from '@mui/material';
 import MoneyField from '../../components/common/fields/MoneyField';
-import { Add, AttachMoney, Block } from '@mui/icons-material';
+import { Add, AttachMoney, Block, Edit, History, WhatsApp } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { DatePicker } from '@mui/x-date-pickers';
 import dayjs, { Dayjs } from 'dayjs';
@@ -14,8 +14,30 @@ import api from '../../services/api';
 import PaymentDialog from '../../components/common/PaymentDialog';
 import CustomerAutocomplete from '../../components/common/CustomerAutocomplete';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import CategorySelect from './CategorySelect';
+import MonthNavigator, { monthRange, isFromAnotherMonth, monthOf } from './MonthNavigator';
+import EditAccountDialog from './EditAccountDialog';
+import PaymentsHistoryDialog from './PaymentsHistoryDialog';
 import { useToast } from '../../store/toast.store';
 import { apiError, fmt, STATUS_MAP, toNumber } from './format';
+
+/**
+ * Link de cobrança pelo WhatsApp, com a mensagem já escrita.
+ *
+ * O sistema não envia nada sozinho: abre a conversa com o texto pronto, e quem
+ * decide mandar é a atendente.
+ */
+function chargeLink(r: any) {
+  const phone = String(r.customer?.phone ?? '').replace(/\D/g, '');
+  const saldo = toNumber(r.amount) - toNumber(r.paidAmount);
+  const dias = dayjs().diff(dayjs(r.dueDate), 'day');
+  const texto =
+    `Oi, ${r.customer?.name?.split(' ')[0] ?? ''}! Tudo bem? ` +
+    `Passando para lembrar do pagamento de ${fmt(saldo)} referente a "${r.description}", ` +
+    `que venceu em ${dayjs(r.dueDate).format('DD/MM')}${dias > 0 ? ` (há ${dias} dias)` : ''}. ` +
+    'Qualquer coisa é só me chamar!';
+  return `https://wa.me/55${phone}?text=${encodeURIComponent(texto)}`;
+}
 
 const METHODS = [
   { value: 'PIX', label: 'Pix' },
@@ -26,7 +48,7 @@ const METHODS = [
 ];
 
 function NewReceivableDialog({ open, onClose, onSuccess }: any) {
-  const [form, setForm] = useState({ description: '', amount: null as number | null, customer: null as any, dueDate: null as Dayjs | null, notes: '' });
+  const [form, setForm] = useState({ description: '', amount: null as number | null, customer: null as any, dueDate: null as Dayjs | null, category: 'Costura', notes: '' });
   const [installments, setInstallments] = useState(1);
   const [downPayment, setDownPayment] = useState<number | null>(null);
   const [downMethod, setDownMethod] = useState('PIX');
@@ -36,7 +58,7 @@ function NewReceivableDialog({ open, onClose, onSuccess }: any) {
 
   useEffect(() => {
     if (open) {
-      setForm({ description: '', amount: null, customer: null, dueDate: dayjs(), notes: '' });
+      setForm({ description: '', amount: null, customer: null, dueDate: dayjs(), category: 'Costura', notes: '' });
       setInstallments(1);
       setDownPayment(null);
       setDownMethod('PIX');
@@ -76,6 +98,7 @@ function NewReceivableDialog({ open, onClose, onSuccess }: any) {
           downPayment: down > 0 ? down : undefined,
           downPaymentMethod: down > 0 ? downMethod : undefined,
           customerId: form.customer?.id ?? undefined,
+          category: form.category || undefined,
           notes: form.notes || undefined,
         }
       : {
@@ -83,6 +106,7 @@ function NewReceivableDialog({ open, onClose, onSuccess }: any) {
           amount: total,
           customerId: form.customer?.id ?? undefined,
           dueDate: form.dueDate?.toISOString(),
+          category: form.category || undefined,
           notes: form.notes || undefined,
         },
   );
@@ -110,6 +134,16 @@ function NewReceivableDialog({ open, onClose, onSuccess }: any) {
               value={form.dueDate}
               onChange={v => setForm(f => ({ ...f, dueDate: v }))}
               slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+            />
+          </Grid>
+          <Grid item xs={12}>
+            {/* Sem categoria a receita some do DRE, que passa a mostrar tudo
+                como "Sem categoria". */}
+            <CategorySelect
+              type="INCOME"
+              value={form.category}
+              onChange={v => setForm(f => ({ ...f, category: v }))}
+              label="Categoria da receita"
             />
           </Grid>
         </Grid>
@@ -180,17 +214,27 @@ export default function ReceivablesSection() {
   const qc = useQueryClient();
   const toast = useToast();
   const [status, setStatus] = useState('');
+  const [month, setMonth] = useState(monthOf());
+  const [includeOverdue, setIncludeOverdue] = useState(true);
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(20);
   const [payTarget, setPayTarget] = useState<any>(null);
   const [cancelTarget, setCancelTarget] = useState<any>(null);
+  const [editTarget, setEditTarget] = useState<any>(null);
+  const [historyTarget, setHistoryTarget] = useState<any>(null);
   const [newDialog, setNewDialog] = useState(false);
   const [payError, setPayError] = useState('');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['receivables', status, page, limit],
+    queryKey: ['receivables', status, month, includeOverdue, page, limit],
     queryFn: () => api.get('/financial/receivables', {
-      params: { status: status || undefined, page: page + 1, limit },
+      params: {
+        status: status || undefined,
+        ...monthRange(month),
+        includeOverdue,
+        page: page + 1,
+        limit,
+      },
     }).then(r => r.data),
   });
 
@@ -220,6 +264,15 @@ export default function ReceivablesSection() {
 
   return (
     <Box>
+      <Box sx={{ mb: 2 }}>
+        <MonthNavigator
+          month={month}
+          onChange={m => { setMonth(m); setPage(0); }}
+          includeOverdue={includeOverdue}
+          onIncludeOverdueChange={v => { setIncludeOverdue(v); setPage(0); }}
+        />
+      </Box>
+
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
         <Box sx={{ display: 'flex', gap: 4 }}>
           <Box>
@@ -250,6 +303,35 @@ export default function ReceivablesSection() {
           <Button variant="contained" startIcon={<Add />} onClick={() => setNewDialog(true)}>Nova Conta</Button>
         </Box>
       </Box>
+
+      {/* Idade da dívida: "R$ 4.000 a receber" não diz nada; saber que R$ 600
+          estão parados há mais de 60 dias diz que é hora de cobrar. */}
+      {data?.aging && toNumber(data.aging.total) > 0 && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle2" fontWeight={600} mb={1}>Idade da dívida</Typography>
+          <Box sx={{ display: 'flex', height: 10, borderRadius: 1, overflow: 'hidden', mb: 1 }}>
+            {data.aging.buckets.map((b: any, i: number) => {
+              const pct = (toNumber(b.amount) / toNumber(data.aging.total)) * 100;
+              if (pct <= 0) return null;
+              const colors = ['success.main', 'warning.light', 'warning.dark', 'error.main'];
+              return <Box key={b.key} sx={{ width: `${pct}%`, bgcolor: colors[i] }} />;
+            })}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+            {data.aging.buckets.map((b: any, i: number) => (
+              <Box key={b.key}>
+                <Typography
+                  variant="caption"
+                  color={i === 0 ? 'success.main' : i === 3 ? 'error.main' : 'warning.main'}
+                >
+                  {b.label} ({b.count})
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>{fmt(b.amount)}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </Paper>
+      )}
 
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
@@ -284,6 +366,15 @@ export default function ReceivablesSection() {
                   </TableCell>
                   <TableCell sx={{ color: overdue ? 'error.main' : undefined, fontWeight: overdue ? 600 : undefined }}>
                     {dayjs(r.dueDate).format('DD/MM/YYYY')}
+                    {isFromAnotherMonth(r.dueDate, month) && (
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        color="warning"
+                        label="de outro mês"
+                        sx={{ ml: 0.5, height: 18, fontSize: 10 }}
+                      />
+                    )}
                     {overdue && (
                       <Typography variant="caption" display="block" color="error.main">
                         há {dayjs().diff(dayjs(r.dueDate), 'day')} dia(s)
@@ -292,19 +383,49 @@ export default function ReceivablesSection() {
                   </TableCell>
                   <TableCell><Chip label={label} size="small" color={color} /></TableCell>
                   <TableCell align="right">
-                    {!settled && (
-                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                      {!settled && (
                         <Button size="small" variant="outlined" color="success" startIcon={<AttachMoney />}
                           onClick={() => { setPayError(''); setPayTarget(r); }}>
                           Receber
                         </Button>
-                        <Tooltip title="Cancelar conta">
-                          <IconButton size="small" color="default" onClick={() => setCancelTarget(r)}>
-                            <Block fontSize="small" />
+                      )}
+                      {overdue && r.customer?.phone && (
+                        <Tooltip title={`Cobrar ${r.customer.name} no WhatsApp`}>
+                          <IconButton
+                            size="small"
+                            color="success"
+                            component="a"
+                            target="_blank"
+                            rel="noopener"
+                            href={chargeLink(r)}
+                          >
+                            <WhatsApp fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                      </Box>
-                    )}
+                      )}
+                      {(r.payments?.length ?? 0) > 0 && (
+                        <Tooltip title="Baixas e estorno">
+                          <IconButton size="small" onClick={() => setHistoryTarget(r)}>
+                            <History fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {!settled && (
+                        <>
+                          <Tooltip title="Editar conta">
+                            <IconButton size="small" onClick={() => setEditTarget(r)}>
+                              <Edit fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Cancelar conta">
+                            <IconButton size="small" color="default" onClick={() => setCancelTarget(r)}>
+                              <Block fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </>
+                      )}
+                    </Box>
                   </TableCell>
                 </TableRow>
               );
@@ -350,6 +471,17 @@ export default function ReceivablesSection() {
         confirmLabel="Cancelar conta"
         confirmColor="error"
         loading={cancelMutation.isPending}
+      />
+
+      <EditAccountDialog
+        account={editTarget}
+        kind="receivable"
+        onClose={() => setEditTarget(null)}
+      />
+
+      <PaymentsHistoryDialog
+        account={historyTarget}
+        onClose={() => setHistoryTarget(null)}
       />
 
       <NewReceivableDialog
