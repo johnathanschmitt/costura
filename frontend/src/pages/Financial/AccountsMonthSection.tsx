@@ -231,16 +231,29 @@ export default function AccountsMonthSection() {
   const balanceOf = (r: any) => toNumber(r.amount) - toNumber(r.paidAmount);
   const partOf = (r: any) => toNumber(r.paidAmount) > 0 && balanceOf(r) > 0.005;
 
-  const primaryFor = (r: any) => (
-    <Button
-      size="small"
-      variant="outlined"
-      color={receiving ? 'success' : 'error'}
-      onClick={() => { setPayError(''); setPayTarget(r); }}
-    >
-      {receiving ? 'Receber' : 'Pagar'}
-    </Button>
-  );
+  const primaryFor = (r: any) => {
+    // Conta adiantada por sócia não tem "Pagar": o fornecedor já foi pago por
+    // ela. O que resta é ressarcir, e isso acontece no bloco do topo, de uma
+    // vez por sócia — dois caminhos para a mesma dívida na mesma tela só
+    // criariam a dúvida de qual é o certo.
+    if (!receiving && r.advancedBy) {
+      return (
+        <Typography variant="caption" color="warning.main" sx={{ whiteSpace: 'nowrap' }}>
+          a ressarcir
+        </Typography>
+      );
+    }
+    return (
+      <Button
+        size="small"
+        variant="outlined"
+        color={receiving ? 'success' : 'error'}
+        onClick={() => { setPayError(''); setPayTarget(r); }}
+      >
+        {receiving ? 'Receber' : 'Pagar'}
+      </Button>
+    );
+  };
 
   const rowMenu = (r: any, settled: boolean) => (
     <RowMenu
@@ -404,7 +417,7 @@ export default function AccountsMonthSection() {
                     </Typography>
                     {r.advancedBy && (
                       <Typography variant="caption" color="warning.main" display="block">
-                        adiantado por {r.advancedBy.name}
+                        paga por {r.advancedBy.name} · a ressarcir
                       </Typography>
                     )}
                   </Box>
@@ -464,7 +477,7 @@ export default function AccountsMonthSection() {
                           outras e ninguém lembra que o dinheiro é dela. */}
                       {r.advancedBy && (
                         <Chip
-                          label={`adiantado por ${r.advancedBy.name}`}
+                          label={`paga por ${r.advancedBy.name}`}
                           size="small"
                           variant="outlined"
                           color="warning"

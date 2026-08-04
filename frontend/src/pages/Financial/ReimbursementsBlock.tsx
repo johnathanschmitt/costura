@@ -59,8 +59,9 @@ export default function ReimbursementsBlock() {
         </Box>
 
         <Typography variant="caption" color="text.secondary" display="block" mb={1}>
-          Despesas do ateliê que elas pagaram do próprio bolso. O gasto já está no resultado; o que
-          falta é devolver o dinheiro.
+          Despesas do ateliê que elas já pagaram do próprio bolso — o fornecedor não está
+          esperando. O que falta é devolver o dinheiro a elas, e é aí que a despesa entra no
+          resultado do mês.
         </Typography>
 
         <Stack divider={<Divider />}>
