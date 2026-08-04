@@ -21,8 +21,9 @@ import EditAccountDialog from './EditAccountDialog';
 import PaymentsHistoryDialog from './PaymentsHistoryDialog';
 import NewReceivableDialog from './NewReceivableDialog';
 import NewPayableDialog from './NewPayableDialog';
+import ReimbursementsBlock from './ReimbursementsBlock';
 import { useUndoPayment } from './useUndoPayment';
-import { useCompact } from './useCompact';
+import { useCompact } from '../../hooks/useCompact';
 import { receiptLink } from './receiptMessage';
 import { apiError, fmt, STATUS_MAP, toNumber } from './format';
 
@@ -371,6 +372,8 @@ export default function AccountsMonthSection() {
         )}
       </Box>
 
+      {!receiving && <ReimbursementsBlock />}
+
       {receiving && staleAmount > 0 && (
         <Typography variant="body2" color="error.main" mb={2}>
           <strong>{fmt(staleAmount)}</strong> {stale.count === 1 ? 'está parado' : 'estão parados'} há
@@ -399,6 +402,11 @@ export default function AccountsMonthSection() {
                       vence {dayjs(r.dueDate).format('DD/MM')}
                       {overdue && ` · há ${dayjs().diff(dayjs(r.dueDate), 'day')} dia(s)`}
                     </Typography>
+                    {r.advancedBy && (
+                      <Typography variant="caption" color="warning.main" display="block">
+                        adiantado por {r.advancedBy.name}
+                      </Typography>
+                    )}
                   </Box>
                   {settled && <Chip label={label} size="small" color={color} sx={{ alignSelf: 'flex-start' }} />}
                 </Box>
@@ -451,6 +459,17 @@ export default function AccountsMonthSection() {
                           o chip só fica onde é a única pista que existe. */}
                       {settled && (
                         <Chip label={label} size="small" color={color} sx={{ ml: 1, height: 18, fontSize: 10 }} />
+                      )}
+                      {/* Sem isto, a conta adiantada pela sócia some no meio das
+                          outras e ninguém lembra que o dinheiro é dela. */}
+                      {r.advancedBy && (
+                        <Chip
+                          label={`adiantado por ${r.advancedBy.name}`}
+                          size="small"
+                          variant="outlined"
+                          color="warning"
+                          sx={{ ml: 1, height: 18, fontSize: 10 }}
+                        />
                       )}
                     </TableCell>
                     <TableCell>{dueCell(r, overdue)}</TableCell>

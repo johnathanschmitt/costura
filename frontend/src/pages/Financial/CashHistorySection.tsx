@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import api from '../../services/api';
 import { fmt, toNumber } from './format';
-import { useCompact } from './useCompact';
+import { useCompact } from '../../hooks/useCompact';
 
 /**
  * Histórico de aberturas e fechamentos.

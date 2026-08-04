@@ -121,7 +121,10 @@ export default function CounterPage() {
                 <Typography variant="body2" color="text.secondary" mb={2}>
                   Tudo o que ela deixou já foi entregue ou cancelado.
                 </Typography>
-                <Button variant="outlined" onClick={() => navigate('/work-orders/new')}>
+                <Button
+                  variant="outlined"
+                  onClick={() => navigate(`/work-orders/new?customerId=${customer.id}`)}
+                >
                   Abrir uma OS
                 </Button>
               </Paper>

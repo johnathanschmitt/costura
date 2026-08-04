@@ -17,7 +17,7 @@ import {
 } from './dto/cash-register.dto';
 import {
   CashFlowQueryDto, CreatePayableDto, CreateReceivableDto, ListCashRegistersDto,
-  ListPayablesDto, ListReceivablesDto, PayDto, UpdatePayableDto, UpdateReceivableDto,
+  ListPayablesDto, ListReceivablesDto, PayDto, ReimburseDto, UpdatePayableDto, UpdateReceivableDto,
 } from './dto/accounts.dto';
 import {
   CashFlowChartQueryDto, CashTransferDto, CreateInstallmentsDto, ReversePaymentDto,
@@ -302,6 +302,19 @@ export class FinancialController {
   @Get('overview')
   getOverview() {
     return this.service.getOverview();
+  }
+
+  @ApiOperation({ summary: 'Quanto o ateliê deve a cada sócia por despesa que ela adiantou' })
+  @Get('reimbursements')
+  getReimbursements() {
+    return this.service.getReimbursements();
+  }
+
+  @ApiOperation({ summary: 'Ressarcir uma sócia: baixa de uma vez todas as notas que ela adiantou' })
+  @Permissions('update:financial')
+  @Post('reimbursements/:userId/pay')
+  reimbursePartner(@Param('userId') userId: string, @Body() dto: ReimburseDto) {
+    return this.service.reimbursePartner(userId, dto);
   }
 
   @ApiOperation({ summary: 'Histórico financeiro de uma cliente: gasto, saldo em aberto e pontualidade' })

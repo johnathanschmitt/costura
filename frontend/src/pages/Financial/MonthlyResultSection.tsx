@@ -15,7 +15,7 @@ import dayjs from 'dayjs';
 import api from '../../services/api';
 import { useFinancialPeriod } from '../../store/financialPeriod.store';
 import { fmt, toNumber } from './format';
-import { useCompact } from './useCompact';
+import { useCompact } from '../../hooks/useCompact';
 
 const monthLabel = (key: string) => dayjs(`${key}-01`).format('MMMM [de] YYYY');
 

@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import ReversePaymentDialog from './ReversePaymentDialog';
 import { fmt, METHOD_LABELS } from './format';
-import { useCompact } from './useCompact';
+import { useCompact } from '../../hooks/useCompact';
 
 /**
  * Baixas já registradas de uma conta, com a opção de estornar a que foi lançada

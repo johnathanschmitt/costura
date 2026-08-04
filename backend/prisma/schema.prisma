@@ -80,6 +80,8 @@ model User {
   distributionPercent Decimal?  @db.Decimal(5, 2)
   distributionShares  DistributionShare[]
   partnerPayouts      PartnerPayout[]
+  /// Despesas do ateliê que esta sócia pagou do bolso e ainda serão ressarcidas.
+  payablesAdvanced    AccountPayable[] @relation("PayableAdvancedBy")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   deletedAt    DateTime?
@@ -746,6 +748,17 @@ enum ReceivableStatus {
 model AccountPayable {
   id            String        @id @default(cuid())
   supplier      String?
+  /// Sócia que pagou esta despesa com dinheiro próprio.
+  ///
+  /// O gasto é do ateliê — entra no resultado como qualquer outro —, mas o
+  /// dinheiro não saiu de conta nenhuma dele: saiu do bolso dela. Enquanto a
+  /// conta estiver em aberto, é isto que o ateliê deve à sócia; a baixa é o
+  /// ressarcimento, e aí sim o dinheiro sai da gaveta ou do banco.
+  ///
+  /// `supplier` continua sendo quem prestou o serviço (a bordadeira), não a
+  /// sócia: são duas perguntas diferentes e misturá-las perderia uma delas.
+  advancedById  String?
+  advancedBy    User?         @relation("PayableAdvancedBy", fields: [advancedById], references: [id])
   description   String
   category      String?
   amount        Decimal       @db.Decimal(10, 2)
@@ -767,6 +780,7 @@ model AccountPayable {
   deletedAt     DateTime?
 
   @@index([status, dueDate])
+  @@index([advancedById, status])
   @@map("accounts_payable")
 }
 

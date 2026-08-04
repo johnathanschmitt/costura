@@ -693,6 +693,9 @@ export class FinancialService {
               feeAmount: true, netAmount: true, availableAt: true,
             },
           },
+          // A tela precisa distinguir "o ateliê deve ao fornecedor" de "o
+          // ateliê deve à sócia que adiantou" — são cobranças diferentes.
+          advancedBy: { select: { id: true, name: true } },
         },
       }),
       this.prisma.accountPayable.count({ where }),
@@ -757,6 +760,7 @@ export class FinancialService {
         category: dto.category ?? null,
         recurrence: dto.recurrence ?? 'NONE',
         notes: dto.notes ?? null,
+        advancedById: dto.advancedById ?? null,
       },
     });
   }
@@ -891,6 +895,7 @@ export class FinancialService {
         ...(dto.amount !== undefined && { amount }),
         ...(dto.dueDate !== undefined && { dueDate: new Date(dto.dueDate) }),
         ...(dto.supplier !== undefined && { supplier: dto.supplier }),
+        ...(dto.advancedById !== undefined && { advancedById: dto.advancedById || null }),
         ...(dto.category !== undefined && { category: dto.category }),
         ...(dto.notes !== undefined && { notes: dto.notes }),
         ...(paid.gte(amount) && { status: 'PAID' as const, paidAt: new Date() }),
@@ -2818,6 +2823,116 @@ export class FinancialService {
         averageDelayDays: averageDelay,
         sampleSize: delays.length,
       },
+    };
+  }
+
+  /**
+   * Quanto o ateliê deve a cada sócia por despesa que ela pagou do bolso.
+   *
+   * Enquanto isso ficava diluído no meio das contas a pagar, a pergunta do fim
+   * do mês — "quanto eu devolvo para cada uma?" — era respondida somando na
+   * mão, e nota esquecida virava dinheiro que a sócia nunca viu de volta.
+   */
+  async getReimbursements() {
+    await this.markOverdue();
+
+    const open = await this.prisma.accountPayable.findMany({
+      where: {
+        deletedAt: null,
+        advancedById: { not: null },
+        status: { notIn: [...FinancialService.SETTLED] },
+      },
+      select: {
+        id: true, description: true, supplier: true, category: true,
+        amount: true, paidAmount: true, dueDate: true,
+        advancedBy: { select: { id: true, name: true } },
+      },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    const byPartner = new Map<string, {
+      userId: string;
+      name: string;
+      total: Prisma.Decimal;
+      items: typeof open;
+    }>();
+
+    for (const p of open) {
+      const remaining = D(p.amount).minus(p.paidAmount);
+      if (remaining.lte(0)) continue;
+      const u = p.advancedBy!;
+      const entry = byPartner.get(u.id)
+        ?? { userId: u.id, name: u.name, total: ZERO, items: [] as typeof open };
+      entry.total = entry.total.plus(remaining);
+      entry.items.push(p);
+      byPartner.set(u.id, entry);
+    }
+
+    const partners = [...byPartner.values()].sort((a, b) => b.total.comparedTo(a.total));
+    return {
+      total: partners.reduce((s, p) => s.plus(p.total), ZERO),
+      partners: partners.map(p => ({
+        userId: p.userId,
+        name: p.name,
+        amount: p.total,
+        count: p.items.length,
+        items: p.items.map(i => ({
+          id: i.id,
+          description: i.description,
+          supplier: i.supplier,
+          category: i.category,
+          dueDate: i.dueDate,
+          amount: D(i.amount).minus(i.paidAmount),
+        })),
+      })),
+    };
+  }
+
+  /**
+   * Ressarce uma sócia de uma vez: baixa todas as notas que ela adiantou.
+   *
+   * O dinheiro sai numa transferência só — é assim que acontece na vida —, mas
+   * cada nota recebe a sua própria baixa, para o resultado continuar sabendo em
+   * que categoria a despesa entrou. Uma baixa única perderia isso.
+   */
+  async reimbursePartner(userId: string, dto: { method: PaymentMethod; accountId?: string }) {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+    if (!user) throw new NotFoundException('Sócia não encontrada');
+
+    const open = await this.prisma.accountPayable.findMany({
+      where: {
+        deletedAt: null,
+        advancedById: userId,
+        status: { notIn: [...FinancialService.SETTLED] },
+      },
+      select: { id: true, amount: true, paidAmount: true },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    const pending = open
+      .map(p => ({ id: p.id, remaining: D(p.amount).minus(p.paidAmount) }))
+      .filter(p => p.remaining.gt(0));
+
+    if (pending.length === 0) {
+      throw new BadRequestException(`Não há nada a ressarcir para ${user.name}`);
+    }
+
+    const paymentIds: string[] = [];
+    for (const p of pending) {
+      const res = await this.payPayable(p.id, {
+        amount: p.remaining.toNumber(),
+        method: dto.method,
+        accountId: dto.accountId,
+        notes: `Ressarcimento a ${user.name}`,
+      });
+      paymentIds.push(res.paymentId);
+    }
+
+    return {
+      partner: { id: user.id, name: user.name },
+      count: pending.length,
+      amount: pending.reduce((s, p) => s.plus(p.remaining), ZERO),
+      paymentIds,
     };
   }
 

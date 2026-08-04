@@ -31,11 +31,18 @@ interface Props {
    * acontecer; "Confirmar" obriga a lembrar o que estava sendo confirmado.
    */
   verb?: string;
+  /**
+   * Valor fechado, sem edição. Serve para a baixa que é sempre integral — o
+   * ressarcimento de uma sócia paga todas as notas dela de uma vez, e um campo
+   * editável ali prometeria um pagamento parcial que não vai acontecer.
+   */
+  lockAmount?: boolean;
 }
 
 export default function PaymentDialog({
   open, onClose, onConfirm, title, maxAmount, loading, error,
   confirmColor = 'success', amountLabel = 'Valor recebido (R$)', verb = 'Receber',
+  lockAmount = false,
 }: Props) {
   const [amount, setAmount] = useState<number | null>(null);
   const [method, setMethod] = useState('PIX');
@@ -79,15 +86,18 @@ export default function PaymentDialog({
           label={amountLabel}
           value={amount}
           onChange={setAmount}
+          disabled={lockAmount}
           error={exceeds}
           helperText={
-            exceeds
-              ? `Não pode passar do saldo em aberto de ${fmt(maxAmount!)}`
-              : partial
-                ? `Baixa parcial — restam ${fmt(maxAmount! - value)}`
-                : ' '
+            lockAmount
+              ? 'Valor fechado — a baixa é sempre integral'
+              : exceeds
+                ? `Não pode passar do saldo em aberto de ${fmt(maxAmount!)}`
+                : partial
+                  ? `Baixa parcial — restam ${fmt(maxAmount! - value)}`
+                  : ' '
           }
-          autoFocus
+          autoFocus={!lockAmount}
           fullWidth
         />
         <FormControl fullWidth>

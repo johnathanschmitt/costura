@@ -14,7 +14,7 @@ import dayjs from 'dayjs';
 import api from '../../services/api';
 import { fmt, toNumber } from './format';
 import WorkQueue from './WorkQueue';
-import { useCompact } from './useCompact';
+import { useCompact } from '../../hooks/useCompact';
 
 /** Bloco do painel: título discreto e conteúdo em destaque. */
 function Panel({ title, action, children }: any) {

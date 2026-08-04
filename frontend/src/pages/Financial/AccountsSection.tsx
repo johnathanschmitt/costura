@@ -16,7 +16,7 @@ import ConfirmDialog from '../../components/common/ConfirmDialog';
 import api from '../../services/api';
 import { useToast } from '../../store/toast.store';
 import { useFinancialPeriod } from '../../store/financialPeriod.store';
-import { useCompact } from './useCompact';
+import { useCompact } from '../../hooks/useCompact';
 import { apiError, fmt, METHOD_LABELS, toNumber } from './format';
 
 const KINDS = [

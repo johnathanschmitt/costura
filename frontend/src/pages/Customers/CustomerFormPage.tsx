@@ -14,6 +14,7 @@ import { useAutosave } from '../../hooks/useAutosave';
 import AutosaveIndicator from '../../components/common/AutosaveIndicator';
 import MeasurementsCard from './MeasurementsCard';
 import CustomerFinancialCard from './CustomerFinancialCard';
+import CustomerWorkOrdersCard from './CustomerWorkOrdersCard';
 
 interface CustomerForm {
   name: string;
@@ -198,7 +199,13 @@ export default function CustomerFormPage() {
           </Card>
         </Grid>
 
-        {/* Financeiro e medidas — só existem depois que a cliente existe */}
+        {/* Peças, financeiro e medidas — só existem depois que a cliente existe */}
+        {isEdit && id && (
+          <Grid item xs={12}>
+            <CustomerWorkOrdersCard customerId={id} />
+          </Grid>
+        )}
+
         {isEdit && id && (
           <Grid item xs={12}>
             <CustomerFinancialCard customerId={id} />

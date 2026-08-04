@@ -18,7 +18,7 @@ import api from '../../services/api';
 import { useToast } from '../../store/toast.store';
 import CategorySelect from './CategorySelect';
 import ReversePaymentDialog from './ReversePaymentDialog';
-import { useCompact } from './useCompact';
+import { useCompact } from '../../hooks/useCompact';
 import { apiError, fmt, toNumber } from './format';
 
 /** Destinos padronizados — precisam bater com CASH_COUNTERPARTS do backend. */

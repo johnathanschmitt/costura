@@ -200,6 +200,21 @@ if [ "$MODE" = "prod" ]; then
     [ -x "node_modules/.bin/$BIN" ] || NEED_INSTALL=true
   done
 
+  # Os três binários existirem não prova que a árvore bate com o lockfile: um
+  # node_modules instalado antes de o package.json ganhar uma dependência
+  # continua tendo nest, tsc e vite — e o build morre lá na frente reclamando
+  # de um pacote que ninguém percebeu que faltava.
+  #
+  # O npm reescreve node_modules/.package-lock.json a cada instalação, então
+  # comparar as datas responde "esta árvore é anterior ao lockfile atual?".
+  if [ "$NEED_INSTALL" = false ]; then
+    if [ ! -f node_modules/.package-lock.json ] \
+      || [ package-lock.json -nt node_modules/.package-lock.json ]; then
+      warn "O package-lock.json mudou desde a última instalação — reinstalando."
+      NEED_INSTALL=true
+    fi
+  fi
+
   if [ "$NEED_INSTALL" = true ]; then
     # Sem lockfile o `npm ci` só cospe o texto de ajuda do comando, que não
     # explica nada. O arquivo é versionado, então normalmente é só restaurar.

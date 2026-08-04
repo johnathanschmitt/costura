@@ -7,7 +7,7 @@ import {
 import {
   Save, ArrowBack, PlayArrow, Done, LocalShipping, RequestQuote, Receipt, Block,
 } from '@mui/icons-material';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatePicker } from '@mui/x-date-pickers';
 import dayjs, { Dayjs } from 'dayjs';
@@ -54,6 +54,7 @@ export default function WorkOrderFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const qc = useQueryClient();
 
   const [form, setForm] = useState<WOForm>(EMPTY);
@@ -66,6 +67,22 @@ export default function WorkOrderFormPage() {
     queryFn: () => api.get(`/work-orders/${id}`).then(r => r.data),
     enabled: isEdit,
   });
+
+  /**
+   * Cliente vindo por `?customerId=` — é como a ficha dela abre uma OS nova.
+   * Sem isto, quem clicou em "Nova OS" na ficha da Maria cairia num formulário
+   * vazio e teria de procurar a Maria de novo.
+   */
+  const preselectId = params.get('customerId');
+  const { data: preselect } = useQuery({
+    queryKey: ['customer', preselectId],
+    queryFn: () => api.get(`/customers/${preselectId}`).then(r => r.data),
+    enabled: !isEdit && Boolean(preselectId),
+  });
+
+  useEffect(() => {
+    if (preselect) setForm(f => (f.customer ? f : { ...f, customer: preselect }));
+  }, [preselect]);
 
   useEffect(() => {
     if (existing) {

@@ -5,6 +5,6 @@ import { useMediaQuery, useTheme } from '@mui/material';
  * de pé, com a cliente esperando. Tabela de cinco colunas ali vira rolagem
  * horizontal — cada linha precisa virar um cartão.
  *
- * Fica num hook só para as telas do módulo concordarem sobre onde é "estreito".
+ * Fica num hook só para as telas concordarem sobre onde é "estreito".
  */
 export const useCompact = () => useMediaQuery(useTheme().breakpoints.down('md'));

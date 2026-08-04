@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  // Teste não vai para produção — nem o código, nem a dependência de tipos.
+  //
+  // Sem este arquivo o `nest build` usa o tsconfig.json, que inclui `src/**/*`
+  // e portanto os `*.spec.ts`. O build passava na máquina de quem escreveu os
+  // testes (onde @types/jest está instalado) e quebrava no servidor com 135
+  // erros "Cannot find name 'describe'" — um build de produção falhando por
+  // causa de arquivos que não deveriam estar nele.
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "**/*.e2e-spec.ts"]
+}

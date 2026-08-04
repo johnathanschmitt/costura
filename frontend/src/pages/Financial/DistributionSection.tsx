@@ -16,7 +16,7 @@ import api from '../../services/api';
 import { useToast } from '../../store/toast.store';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import { apiError, fmt, toNumber } from './format';
-import { useCompact } from './useCompact';
+import { useCompact } from '../../hooks/useCompact';
 
 const monthLabel = (key: string) => dayjs(`${key}-01`).format('MMMM [de] YYYY');
 

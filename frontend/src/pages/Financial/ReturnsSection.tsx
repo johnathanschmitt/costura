@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
 import api from '../../services/api';
 import { fmt, toNumber } from './format';
-import { useCompact } from './useCompact';
+import { useCompact } from '../../hooks/useCompact';
 
 function ReturnTable({ title, rows, target, isLoading, emptyLabel, emptyHint }: any) {
   const compact = useCompact();

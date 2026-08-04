@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
-  Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Grid,
-  Alert, Select, MenuItem, FormControl, InputLabel,
+  Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Grid,
+  Alert, Select, MenuItem, FormControl, InputLabel, Typography,
+  ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatePicker } from '@mui/x-date-pickers';
 import dayjs, { Dayjs } from 'dayjs';
 import MoneyField from '../../components/common/fields/MoneyField';
@@ -16,16 +17,25 @@ export default function NewPayableDialog({ open, onClose, onSuccess }: any) {
   const [form, setForm] = useState({
     description: '', supplier: '', category: '', amount: null as number | null,
     dueDate: null as Dayjs | null, notes: '', recurrence: 'NONE',
+    advancedById: '',
   });
   const [error, setError] = useState('');
   const qc = useQueryClient();
   const toast = useToast();
 
+  // Só sócias podem adiantar dinheiro do ateliê — é quem tem parte no resultado.
+  const { data: users = [] } = useQuery({
+    queryKey: ['settings-users'],
+    queryFn: () => api.get('/settings/users').then(r => r.data),
+    staleTime: 60_000,
+  });
+  const partners = (users as any[]).filter(u => u.isPartner && u.active !== false);
+
   useEffect(() => {
     if (open) {
       setForm({
         description: '', supplier: '', category: '', amount: null,
-        dueDate: dayjs(), notes: '', recurrence: 'NONE',
+        dueDate: dayjs(), notes: '', recurrence: 'NONE', advancedById: '',
       });
       setError('');
     }
@@ -99,6 +109,57 @@ export default function NewPayableDialog({ open, onClose, onSuccess }: any) {
           </Grid>
         </Grid>
 
+        {/* Quem tirou o dinheiro do bolso muda o que a conta significa: paga
+            pelo ateliê é despesa e pronto; paga por uma sócia é despesa E
+            dívida com ela até o ressarcimento. */}
+        <Box>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            Quem pagou?
+          </Typography>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={form.advancedById ? 'socia' : 'atelie'}
+            onChange={(_, v) => {
+              if (!v) return;
+              setForm(f => ({
+                ...f,
+                advancedById: v === 'socia' ? (partners[0]?.id ?? '') : '',
+              }));
+            }}
+          >
+            <ToggleButton value="atelie">O ateliê</ToggleButton>
+            <ToggleButton value="socia" disabled={partners.length === 0}>Uma sócia</ToggleButton>
+          </ToggleButtonGroup>
+
+          {partners.length === 0 && (
+            <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+              Nenhuma sócia cadastrada — marque quem são em Configurações → Usuários.
+            </Typography>
+          )}
+
+          {form.advancedById && (
+            <>
+              <FormControl fullWidth size="small" sx={{ mt: 1.5 }}>
+                <InputLabel>Sócia que pagou</InputLabel>
+                <Select
+                  value={form.advancedById}
+                  label="Sócia que pagou"
+                  onChange={e => setForm(f => ({ ...f, advancedById: e.target.value }))}
+                >
+                  {partners.map((p: any) => (
+                    <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                O gasto entra no resultado normalmente. A conta fica como dívida com ela até você
+                registrar o ressarcimento — e é aí que o dinheiro sai do ateliê.
+              </Typography>
+            </>
+          )}
+        </Box>
+
         {repeats && (
           <Alert severity="info">
             As contas dos próximos meses são criadas junto com esta, a partir deste vencimento.
@@ -119,6 +180,7 @@ export default function NewPayableDialog({ open, onClose, onSuccess }: any) {
             category: form.category || undefined,
             recurrence: form.recurrence,
             notes: form.notes || undefined,
+            advancedById: form.advancedById || undefined,
           })}
           disabled={!ready || mutation.isPending}
         >

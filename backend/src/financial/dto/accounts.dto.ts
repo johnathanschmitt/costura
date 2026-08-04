@@ -91,6 +91,15 @@ export class CreatePayableDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  @ApiPropertyOptional({
+    description: 'Sócia que pagou esta despesa do próprio bolso. A conta vira dívida com ela '
+      + 'até o ressarcimento, e a baixa é o ressarcimento.',
+  })
+  @IsOptional()
+  @EmptyToUndefined()
+  @IsString()
+  advancedById?: string;
 }
 
 /**
@@ -173,6 +182,13 @@ export class UpdatePayableDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  // Vazio remove o vínculo: a conta deixa de ser dívida com a sócia e volta a
+  // ser uma despesa comum do ateliê.
+  @ApiPropertyOptional({ description: 'Sócia que adiantou o dinheiro. Vazio remove o vínculo.' })
+  @IsOptional()
+  @IsString()
+  advancedById?: string | null;
 }
 
 export class PayDto {
@@ -343,3 +359,21 @@ export class CashFlowQueryDto {
 }
 
 export class ListCashRegistersDto extends PaginationQueryDto {}
+
+/**
+ * Ressarcimento de uma sócia: só o "de onde sai o dinheiro".
+ *
+ * O valor não vem do cliente — é a soma do que ela adiantou e ainda não
+ * recebeu de volta. Deixar o valor aberto aqui permitiria ressarcir a mais.
+ */
+export class ReimburseDto {
+  @ApiProperty({ enum: PaymentMethod })
+  @IsEnum(PaymentMethod, { message: 'Forma de pagamento inválida' })
+  method: PaymentMethod;
+
+  @ApiPropertyOptional({ description: 'De qual conta o dinheiro sai. Em espécie é sempre a gaveta.' })
+  @IsOptional()
+  @EmptyToUndefined()
+  @IsString()
+  accountId?: string;
+}
