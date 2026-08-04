@@ -46,6 +46,9 @@ export default function NewPayableDialog({ open, onClose, onSuccess }: any) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['payables'] });
       qc.invalidateQueries({ queryKey: ['financial-summary'] });
+      // Conta adiantada por sócia nasce como dívida com ela: sem invalidar
+      // isto, o bloco "A ressarcir" só aparecia depois de recarregar a página.
+      qc.invalidateQueries({ queryKey: ['reimbursements'] });
       toast('Conta a pagar criada');
       // Materializa as próximas ocorrências assim que a conta-mãe existe.
       if (form.recurrence !== 'NONE') {

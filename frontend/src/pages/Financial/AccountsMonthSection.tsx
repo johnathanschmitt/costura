@@ -174,7 +174,7 @@ export default function AccountsMonthSection() {
 
   const refresh = () => {
     ['receivables', 'payables', 'financial-summary', 'financial-overview',
-      'cash-register-current', 'cash-transactions',
+      'cash-register-current', 'cash-transactions', 'reimbursements',
     ].forEach(key => qc.invalidateQueries({ queryKey: [key] }));
   };
 

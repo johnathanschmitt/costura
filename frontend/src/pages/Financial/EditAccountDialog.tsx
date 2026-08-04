@@ -68,7 +68,7 @@ export default function EditAccountDialog({ account, kind, onClose }: Props) {
       notes,
     }),
     onSuccess: () => {
-      ['receivables', 'payables', 'financial-summary', 'financial-overview']
+      ['receivables', 'payables', 'financial-summary', 'financial-overview', 'reimbursements']
         .forEach(key => qc.invalidateQueries({ queryKey: [key] }));
       toast('Conta atualizada');
       onClose();

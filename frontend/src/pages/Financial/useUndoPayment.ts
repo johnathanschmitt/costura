@@ -7,7 +7,7 @@ import { apiError } from './format';
 const AFFECTED = [
   'receivables', 'payables', 'cash-transactions', 'cash-register-current',
   'financial-summary', 'financial-overview', 'cash-flow', 'dre', 'monthly-result',
-  'accounts', 'account-statement',
+  'accounts', 'account-statement', 'reimbursements',
 ];
 
 /**
