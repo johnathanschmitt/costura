@@ -266,6 +266,21 @@ if [ "$MODE" = "prod" ]; then
   log "Subindo os containers..."
   docker compose $PROFILES up -d || err "docker compose up falhou — veja o erro acima."
 
+  # O backend não compila nada: ele monta backend/dist do host. Para o Docker,
+  # trocar o conteúdo de um bind mount não é mudança de configuração — o
+  # `up -d` vê o container igual ao que já está no ar e deixa como está.
+  #
+  # O resultado é o pior tipo de deploy: tudo verde, nginx servindo o frontend
+  # novo (esse é arquivo estático, lido a cada request) e o backend ainda
+  # rodando o processo antigo. As telas novas chamam endpoints que "não
+  # existem" e ninguém entende por quê.
+  #
+  # O restart é barato e idempotente: o CMD reaplica as migrations e sobe o
+  # main.js recém-compilado.
+  log "Reiniciando o backend para carregar o código novo..."
+  docker compose restart backend >/dev/null \
+    || err "Não foi possível reiniciar o backend — veja: docker compose logs backend"
+
   log "Aguardando backend ficar saudável..."
   for i in $(seq 1 60); do
     STATUS=$(docker inspect --format='{{.State.Health.Status}}' atelie_backend 2>/dev/null || echo "starting")
