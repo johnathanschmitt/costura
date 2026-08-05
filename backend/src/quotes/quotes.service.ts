@@ -368,12 +368,27 @@ export class QuotesService {
   }
 
   async remove(id: string) {
-    const quote = await this.prisma.quote.findFirst({ where: { id, deletedAt: null } });
+    const quote = await this.prisma.quote.findFirst({
+      where: { id, deletedAt: null },
+      include: { workOrder: { select: { id: true, status: true } } },
+    });
     if (!quote) throw new NotFoundException('Orçamento não encontrado');
     if (quote.status === 'APPROVED') {
       throw new BadRequestException('Orçamento aprovado não pode ser removido');
     }
-    return this.prisma.quote.update({ where: { id }, data: { deletedAt: new Date() } });
+    if (quote.workOrder && quote.workOrder.status === 'DELIVERED') {
+      throw new BadRequestException('Orçamento com OS já entregue não pode ser removido');
+    }
+
+    return this.prisma.$transaction(async tx => {
+      if (quote.workOrder) {
+        await tx.workOrder.update({
+          where: { id: quote.workOrder.id },
+          data: { deletedAt: new Date() },
+        });
+      }
+      return tx.quote.update({ where: { id }, data: { deletedAt: new Date() } });
+    });
   }
 
   /**
