@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Box, Typography, Button, TextField, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Paper, IconButton, Chip,
-  InputAdornment, Skeleton, Select, MenuItem, FormControl, InputLabel,
+  InputAdornment, Skeleton, Select, MenuItem, FormControl, InputLabel, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import { Add, Search, Edit, Delete, CheckCircle, Assignment, Cancel } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -23,6 +23,7 @@ const STATUS_LABELS: Record<string, { label: string; color: any }> = {
 export default function QuotesPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const debouncedSearch = useDebounce(search, 400);
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -54,8 +55,14 @@ export default function QuotesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/quotes/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['quotes'] }),
-    onError: (e: any) => toast(e.response?.data?.message ?? 'Erro ao remover', 'error'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['quotes'] });
+      setDeleteTarget(null);
+      toast('Orçamento e OS (se houver) removidos', 'info');
+    },
+    onError: (e: any) => {
+      toast(e.response?.data?.message ?? 'Erro ao remover', 'error');
+    },
   });
 
   const fmt = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
@@ -107,9 +114,6 @@ export default function QuotesPage() {
             )) : data?.data?.map((q: any) => {
               const s = STATUS_LABELS[q.status] ?? { label: q.status, color: 'default' };
               return (
-                /* Clicar em qualquer lugar da linha abre o orçamento — é o que
-                   se tenta primeiro numa lista, e no celular poupa mirar num
-                   ícone de 20px. */
                 <TableRow
                   key={q.id}
                   hover
@@ -160,7 +164,7 @@ export default function QuotesPage() {
                       </IconButton>
                     )}
                     <IconButton size="small" onClick={() => navigate(`/quotes/${q.id}/edit`)}><Edit fontSize="small" /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => confirm('Remover?') && deleteMutation.mutate(q.id)}>
+                    <IconButton size="small" color="error" onClick={() => setDeleteTarget(q)} title="Remover orçamento e OS vinculada">
                       <Delete fontSize="small" />
                     </IconButton>
                   </TableCell>
@@ -170,6 +174,25 @@ export default function QuotesPage() {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)}>
+        <DialogTitle>Remover Orçamento?</DialogTitle>
+        <DialogContent>
+          Deseja realmente remover o orçamento <strong>{deleteTarget?.number}</strong> e sua OS vinculada (se existir)?
+          Esta ação é irreversível.
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)}>Cancelar</Button>
+          <Button
+            onClick={() => deleteMutation.mutate(deleteTarget.id)}
+            color="error"
+            variant="contained"
+            disabled={deleteMutation.isPending}
+          >
+            Remover Orçamento e OS
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
