@@ -178,8 +178,21 @@ export default function QuotesPage() {
       <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)}>
         <DialogTitle>Remover Orçamento?</DialogTitle>
         <DialogContent>
-          Deseja realmente remover o orçamento <strong>{deleteTarget?.number}</strong> e sua OS vinculada (se existir)?
-          Esta ação é irreversível.
+          <Typography variant="body1" gutterBottom>
+            Deseja realmente remover o orçamento <strong>{deleteTarget?.number}</strong>?
+          </Typography>
+          {deleteTarget?.workOrder && (
+            <Alert severity="warning" sx={{ mt: 1 }}>
+              Este orçamento está aprovado e possui a <strong>OS {deleteTarget.workOrder.number}</strong> associada.
+              <br />
+              A OS também será removida. Esta ação é irreversível.
+            </Alert>
+          )}
+          {!deleteTarget?.workOrder && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Esta ação é irreversível.
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteTarget(null)}>Cancelar</Button>
@@ -189,7 +202,7 @@ export default function QuotesPage() {
             variant="contained"
             disabled={deleteMutation.isPending}
           >
-            Remover Orçamento e OS
+            {deleteTarget?.workOrder ? 'Remover Orçamento e OS' : 'Remover Orçamento'}
           </Button>
         </DialogActions>
       </Dialog>
