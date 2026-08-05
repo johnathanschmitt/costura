@@ -388,6 +388,10 @@ export class QuotesService {
           where: { id: quote.workOrder.id },
           data: { deletedAt: new Date() },
         });
+        await tx.accountReceivable.updateMany({
+          where: { workOrderId: quote.workOrder.id },
+          data: { deletedAt: new Date() },
+        });
       }
       return tx.quote.update({ where: { id }, data: { deletedAt: new Date() } });
     });

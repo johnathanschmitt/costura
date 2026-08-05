@@ -28,7 +28,10 @@ export class ReportsService {
       this.prisma.customer.count({ where: { deletedAt: null } }),
       this.prisma.workOrder.count({ where: { deletedAt: null, status: { notIn: ['DELIVERED', 'CANCELLED'] } } }),
       this.prisma.accountReceivable.aggregate({
-        where: { status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] } },
+        where: {
+          status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
+          deletedAt: null,
+        },
         _sum: { amount: true },
       }),
       // Mesma conta do módulo financeiro: o que entrou de dinheiro no mês.
