@@ -372,11 +372,16 @@ export class QuotesService {
       where: { id, deletedAt: null },
       include: { workOrder: { select: { id: true, status: true } } },
     });
-    if (!quote) throw new NotFoundException('Orçamento não encontrado');
+    if (!quote) {
+      console.error(`Quote not found: ${id}`);
+      throw new NotFoundException('Orçamento não encontrado');
+    }
     if (quote.status === 'APPROVED') {
+      console.error(`Cannot remove approved quote: ${id}`);
       throw new BadRequestException('Orçamento aprovado não pode ser removido');
     }
     if (quote.workOrder && quote.workOrder.status === 'DELIVERED') {
+      console.error(`Cannot remove quote with delivered work order: ${id} (WO: ${quote.workOrder.id})`);
       throw new BadRequestException('Orçamento com OS já entregue não pode ser removido');
     }
 
