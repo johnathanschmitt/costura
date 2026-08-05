@@ -50,6 +50,13 @@ export class QuotesController {
     return this.service.approve(id);
   }
 
+  @ApiOperation({ summary: 'Recusar orçamento' })
+  @Permissions('update:quotes')
+  @Patch(':id/reject')
+  reject(@Param('id') id: string) {
+    return this.service.reject(id);
+  }
+
   @ApiOperation({ summary: 'Reabrir orçamento recusado ou expirado' })
   @Permissions('update:quotes')
   @Patch(':id/reopen')

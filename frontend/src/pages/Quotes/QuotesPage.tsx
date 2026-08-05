@@ -4,12 +4,13 @@ import {
   TableContainer, TableHead, TableRow, Paper, IconButton, Chip,
   InputAdornment, Skeleton, Select, MenuItem, FormControl, InputLabel,
 } from '@mui/material';
-import { Add, Search, Edit, Delete, CheckCircle, Assignment } from '@mui/icons-material';
+import { Add, Search, Edit, Delete, CheckCircle, Assignment, Cancel } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import api from '../../services/api';
 import { useDebounce } from '../../hooks/useDebounce';
+import { useToast } from '../../store/toast.store';
 
 const STATUS_LABELS: Record<string, { label: string; color: any }> = {
   DRAFT: { label: 'Rascunho', color: 'default' },
@@ -25,6 +26,7 @@ export default function QuotesPage() {
   const debouncedSearch = useDebounce(search, 400);
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const toast = useToast();
 
   const { data, isLoading } = useQuery({
     queryKey: ['quotes', debouncedSearch, status],
@@ -34,6 +36,12 @@ export default function QuotesPage() {
   const approveMutation = useMutation({
     mutationFn: (id: string) => api.patch(`/quotes/${id}/approve`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['quotes'] }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (id: string) => api.patch(`/quotes/${id}/reject`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['quotes'] }),
+    onError: (e: any) => toast(e.response?.data?.message ?? 'Erro ao recusar', 'error'),
   });
 
   const convertMutation = useMutation({
@@ -47,6 +55,7 @@ export default function QuotesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/quotes/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['quotes'] }),
+    onError: (e: any) => toast(e.response?.data?.message ?? 'Erro ao remover', 'error'),
   });
 
   const fmt = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
@@ -132,6 +141,11 @@ export default function QuotesPage() {
                     {q.status === 'SENT' && (
                       <IconButton size="small" color="success" onClick={() => approveMutation.mutate(q.id)} title="Aprovar">
                         <CheckCircle fontSize="small" />
+                      </IconButton>
+                    )}
+                    {['DRAFT', 'SENT'].includes(q.status) && (
+                      <IconButton size="small" color="error" onClick={() => confirm('Recusar orçamento?') && rejectMutation.mutate(q.id)} title="Recusar">
+                        <Cancel fontSize="small" />
                       </IconButton>
                     )}
                     {q.status === 'APPROVED' && !q.workOrder && (

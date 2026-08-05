@@ -215,6 +215,17 @@ export class QuotesService {
     });
   }
 
+  async reject(id: string) {
+    const quote = await this.prisma.quote.findFirst({ where: { id, deletedAt: null } });
+    if (!quote) throw new NotFoundException('Orçamento não encontrado');
+    if (quote.status === 'APPROVED') throw new BadRequestException('Orçamento aprovado não pode ser recusado');
+    return this.prisma.quote.update({
+      where: { id },
+      data: { status: 'REJECTED' },
+      include: { customer: true, items: true },
+    });
+  }
+
   /** Recusado ou expirado volta a Rascunho para ser reeditado. */
   async reopen(id: string) {
     const quote = await this.prisma.quote.findFirst({ where: { id, deletedAt: null } });
