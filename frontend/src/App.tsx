@@ -25,6 +25,8 @@ import DistributionPrintPage from './pages/Financial/DistributionPrintPage';
 import DrePrintPage from './pages/Financial/DrePrintPage';
 import ServicesPage from './pages/Catalog/ServicesPage';
 import ServiceFormPage from './pages/Catalog/ServiceFormPage';
+import ServicePriceListSelectionPage from './pages/Catalog/ServicePriceListSelectionPage';
+import ServicePriceListPrintPage from './pages/Catalog/ServicePriceListPrintPage';
 import ProductsPage from './pages/Catalog/ProductsPage';
 import ProductFormPage from './pages/Catalog/ProductFormPage';
 import ReportsPage from './pages/Reports/ReportsPage';
@@ -52,6 +54,7 @@ export default function App() {
         <Route path="/financial/fechamento/:month" element={<PrivateRoute><MonthlyClosingPage /></PrivateRoute>} />
         <Route path="/financial/divisao/:month" element={<PrivateRoute><DistributionPrintPage /></PrivateRoute>} />
         <Route path="/financial/dre/print" element={<PrivateRoute><DrePrintPage /></PrivateRoute>} />
+        <Route path="/catalog/services/print" element={<PrivateRoute><ServicePriceListPrintPage /></PrivateRoute>} />
         <Route
           path="/*"
           element={
@@ -80,6 +83,7 @@ export default function App() {
                   <Route path="catalog/services" element={<ServicesPage />} />
                   <Route path="catalog/services/new" element={<ServiceFormPage />} />
                   <Route path="catalog/services/:id/edit" element={<ServiceFormPage />} />
+                  <Route path="catalog/services/select-print" element={<ServicePriceListSelectionPage />} />
                   <Route path="catalog/products" element={<ProductsPage />} />
                   <Route path="catalog/products/new" element={<ProductFormPage />} />
                   <Route path="catalog/products/:id/edit" element={<ProductFormPage />} />

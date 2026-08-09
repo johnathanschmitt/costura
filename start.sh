@@ -371,6 +371,7 @@ fi
 # ═════════════════════════════════════════════════════════════════════════════
 # DESENVOLVIMENTO
 # ═════════════════════════════════════════════════════════════════════════════
+./stop.sh --dev
 command -v node >/dev/null 2>&1 || err "Node.js não encontrado"
 command -v npm  >/dev/null 2>&1 || err "npm não encontrado"
 
@@ -395,10 +396,6 @@ log "Checando portas..."
 check_port 5432 "PostgreSQL"
 check_port 6380 "Redis"
 check_port 9000 "MinIO"
-
-# Remove containers anteriores que possam ter ficado presos (inclusive com porta antiga)
-docker compose -f docker-compose.dev.yml down --remove-orphans 2>/dev/null || true
-docker rm -f atelie_postgres atelie_redis atelie_minio atelie_pgadmin 2>/dev/null || true
 
 # 1. Infra
 log "Subindo infraestrutura (postgres, redis, minio)..."

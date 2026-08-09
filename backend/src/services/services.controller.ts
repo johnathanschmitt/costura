@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -8,7 +8,6 @@ import { ServicesService } from './services.service';
 @ApiTags('services')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Permissions('read:services')
 @Controller('services')
 export class ServicesController {
   constructor(private service: ServicesService) {}
@@ -20,23 +19,24 @@ export class ServicesController {
   }
 
   @ApiOperation({ summary: 'Buscar serviço' })
+  @Permissions('read:services')
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
   }
 
   @ApiOperation({ summary: 'Criar serviço' })
-  @Permissions('update:services')
+  @Permissions('create:services')
   @Post()
-  create(@Body() body: any) {
-    return this.service.create(body);
+  create(@Body() data: any) {
+    return this.service.create(data);
   }
 
-  @ApiOperation({ summary: 'Atualizar serviço' })
+  @ApiOperation({ summary: 'Editar serviço' })
   @Permissions('update:services')
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() data: any) {
+    return this.service.update(id, data);
   }
 
   @ApiOperation({ summary: 'Remover serviço' })

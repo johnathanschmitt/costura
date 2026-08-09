@@ -19,6 +19,7 @@ import ItemsEditor, { LineItem } from '../../components/common/ItemsEditor';
 import AttachmentsCard from '../../components/common/AttachmentsCard';
 import { useToast } from '../../store/toast.store';
 import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
+import PaymentDialog from './PaymentDialog';
 import DeliverDialog from './DeliverDialog';
 import CancelDialog from './CancelDialog';
 import PieceMeasurements from './PieceMeasurements';
@@ -60,6 +61,7 @@ export default function WorkOrderFormPage() {
   const [form, setForm] = useState<WOForm>(EMPTY);
   const [error, setError] = useState('');
   const [deliverOpen, setDeliverOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
 
   const { data: existing } = useQuery({
@@ -246,6 +248,11 @@ export default function WorkOrderFormPage() {
             <Button size="small" variant="outlined" color="primary" startIcon={<LocalShipping />}
               onClick={() => setDeliverOpen(true)}>
               Registrar Entrega
+            </Button>
+          )}
+          {isEdit && existing?.status !== 'CANCELLED' && (
+            <Button size="small" variant="outlined" color="success" onClick={() => setPaymentOpen(true)}>
+              Registrar Pagamento
             </Button>
           )}
           {existing?.status === 'DELIVERED' && (
@@ -476,6 +483,10 @@ export default function WorkOrderFormPage() {
         )}
       </Grid>
 
+      <PaymentDialog
+        workOrder={paymentOpen ? existing : null}
+        onClose={() => setPaymentOpen(false)}
+      />
       <CancelDialog
         workOrder={cancelOpen ? existing : null}
         onClose={() => setCancelOpen(false)}

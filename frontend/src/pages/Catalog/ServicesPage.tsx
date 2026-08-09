@@ -35,9 +35,14 @@ export default function ServicesPage() {
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
         <Typography variant="h5">Serviços</Typography>
-        <Button variant="contained" startIcon={<Add />} onClick={() => navigate('/catalog/services/new')}>
-          Novo Serviço
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="outlined" onClick={() => navigate('/catalog/services/select-print')}>
+            Imprimir Tabela
+          </Button>
+          <Button variant="contained" startIcon={<Add />} onClick={() => navigate('/catalog/services/new')}>
+            Novo Serviço
+          </Button>
+        </Box>
       </Box>
 
       <TextField

@@ -7,7 +7,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { WorkOrdersService } from './work-orders.service';
 import {
   AssignDto, BoardQueryDto, CancelWorkOrderDto, CreateUpdateDto, CreateWorkOrderDto, DeliverDto,
-  ListWorkOrdersDto, SetEstimatedHoursDto, UpdateStatusDto, UpdateWorkOrderDto,
+  DeliverPaymentDto, ListWorkOrdersDto, SetEstimatedHoursDto, UpdateStatusDto, UpdateWorkOrderDto,
 } from './dto/work-orders.dto';
 
 @ApiTags('work-orders')
@@ -101,6 +101,13 @@ export class WorkOrdersController {
   @Post(':id/deliver')
   deliver(@Param('id') id: string, @Body() dto: DeliverDto, @CurrentUser() user: any) {
     return this.service.deliver(id, dto, user?.id);
+  }
+
+  @ApiOperation({ summary: 'Registrar pagamento da OS (sem entregar)' })
+  @Permissions('update:work-orders')
+  @Post(':id/payment')
+  registerPayment(@Param('id') id: string, @Body() dto: DeliverPaymentDto) {
+    return this.service.registerPayment(id, dto);
   }
 
   @ApiOperation({ summary: 'O que o cancelamento vai mexer (cobranças e material)' })

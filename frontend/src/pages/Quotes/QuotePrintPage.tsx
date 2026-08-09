@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Box, Button, CircularProgress, Paper } from '@mui/material';
@@ -20,10 +19,6 @@ export default function QuotePrintPage() {
     queryKey: ['business-info'],
     queryFn: () => api.get('/settings/business').then(r => r.data),
   });
-
-  useEffect(() => {
-    if (quote && biz) setTimeout(() => window.print(), 600);
-  }, [quote, biz]);
 
   if (loadingQuote || loadingBiz) {
     return <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress /></Box>;

@@ -292,19 +292,21 @@ export default function AccountsMonthSection() {
     </>
   );
 
-  const amountCell = (r: any) => (
-    <>
-      <Typography variant="body2" fontWeight={700}>{fmt(r.amount)}</Typography>
-      {/* Recebido e Saldo eram duas colunas repetindo a terceira: numa conta
-          normal a primeira é zero e a segunda é igual ao valor. Só aparecem
-          quando há pagamento parcial, que é quando dizem algo. */}
-      {partOf(r) && (
-        <Typography variant="caption" color="text.secondary">
-          {receiving ? 'recebido' : 'pago'} {fmt(r.paidAmount)} de {fmt(r.amount)}
+  const amountCell = (r: any) => {
+    const remaining = toNumber(r.amount) - toNumber(r.paidAmount);
+    return (
+      <>
+        <Typography variant="body2" fontWeight={700}>
+          {fmt(remaining)}
         </Typography>
-      )}
-    </>
-  );
+        {partOf(r) && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            {fmt(r.amount)} original
+          </Typography>
+        )}
+      </>
+    );
+  };
 
   return (
     <Box>

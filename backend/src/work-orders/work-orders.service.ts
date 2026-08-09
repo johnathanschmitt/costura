@@ -357,6 +357,10 @@ export class WorkOrdersService {
     });
   }
 
+  async registerPayment(id: string, dto: DeliverPaymentDto) {
+    return this.receiveOnDelivery(id, dto);
+  }
+
   /**
    * Baixa o saldo da OS no ato da entrega, distribuindo o valor entre as contas
    * em aberto da mais antiga para a mais nova — que é a ordem em que a cliente
