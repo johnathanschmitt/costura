@@ -11,7 +11,7 @@ import api from '../../services/api';
 import { useToast } from '../../store/toast.store';
 
 interface Props {
-  entityType: 'customer' | 'workOrder' | 'quote' | 'accountPayable';
+  entityType: 'customer' | 'workOrder' | 'quote' | 'accountPayable' | 'garment';
   entityId: string;
 }
 

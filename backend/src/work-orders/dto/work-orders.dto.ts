@@ -39,6 +39,13 @@ export class WorkOrderItemDto {
   @IsString()
   productId?: string;
 
+  @ApiPropertyOptional({ example: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Desconto inválido' })
+  @Min(0, { message: 'Desconto não pode ser negativo' })
+  discount?: number;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()

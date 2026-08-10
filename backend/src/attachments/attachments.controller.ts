@@ -31,6 +31,7 @@ const ENTITY_RESOURCE: Record<AttachmentEntity, string> = {
   quote: 'quotes',
   inventoryMovement: 'inventory',
   accountPayable: 'financial',
+  garment: 'garments',
 };
 
 @ApiTags('attachments')

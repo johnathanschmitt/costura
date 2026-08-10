@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
 import { useAutosave } from '../../hooks/useAutosave';
 import AutosaveIndicator from '../../components/common/AutosaveIndicator';
+import AttachmentsCard from '../../components/common/AttachmentsCard';
 import { CATEGORIES, CATEGORY_COLOR } from './GarmentsPage';
 
 interface GarmentForm {
@@ -224,6 +225,7 @@ export default function GarmentFormPage() {
               </Grid>
             </CardContent>
           </Card>
+          {isEdit && id && <AttachmentsCard entityType="garment" entityId={id} />}
         </Grid>
       </Grid>
     </Box>

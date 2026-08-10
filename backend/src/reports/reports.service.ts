@@ -27,13 +27,14 @@ export class ReportsService {
     ] = await Promise.all([
       this.prisma.customer.count({ where: { deletedAt: null } }),
       this.prisma.workOrder.count({ where: { deletedAt: null, status: { notIn: ['DELIVERED', 'CANCELLED'] } } }),
-      this.prisma.accountReceivable.aggregate({
+      // Filtra manualmente para calcular o saldo real (amount - paidAmount)
+      this.prisma.accountReceivable.findMany({
         where: {
           status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
           deletedAt: null,
         },
-        _sum: { amount: true },
-      }),
+        select: { amount: true, paidAmount: true },
+      }).then(recs => recs.reduce((sum, r) => sum + Number(r.amount) - Number(r.paidAmount), 0)),
       // Mesma conta do módulo financeiro: o que entrou de dinheiro no mês.
       realizedEntries(this.prisma, startOfMonth, endOfMonth).then(e => totals(e).income),
       this.prisma.schedule.findMany({
@@ -63,7 +64,7 @@ export class ReportsService {
     return {
       totalCustomers,
       openWorkOrders,
-      pendingReceivables: pendingReceivables._sum.amount ?? 0,
+      pendingReceivables,
       monthRevenue,
       todaySchedules,
       recentWorkOrders,

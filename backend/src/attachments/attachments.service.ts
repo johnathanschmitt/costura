@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 /** Entidades que aceitam anexo. O nome vira a coluna `<entidade>Id`. */
 export const ATTACHMENT_ENTITIES = [
-  'customer', 'workOrder', 'quote', 'inventoryMovement', 'accountPayable',
+  'customer', 'workOrder', 'quote', 'inventoryMovement', 'accountPayable', 'garment',
 ] as const;
 export type AttachmentEntity = (typeof ATTACHMENT_ENTITIES)[number];
 

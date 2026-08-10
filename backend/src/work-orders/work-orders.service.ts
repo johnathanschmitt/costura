@@ -255,7 +255,12 @@ export class WorkOrdersService {
     await this.findOne(id);
     const { items, measurements, ...data } = dto;
 
-    if (items) await this.prisma.workOrderItem.deleteMany({ where: { workOrderId: id } });
+    if (items) {
+      if (items.length === 0) {
+        throw new BadRequestException('A ordem de serviço deve conter pelo menos um item.');
+      }
+      await this.prisma.workOrderItem.deleteMany({ where: { workOrderId: id } });
+    }
 
     return this.prisma.workOrder.update({
       where: { id },

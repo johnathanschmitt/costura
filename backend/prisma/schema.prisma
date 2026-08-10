@@ -256,6 +256,7 @@ model Garment {
   imageUrl    String?
   active      Boolean     @default(true)
   workOrders  WorkOrder[]
+  attachments Attachment[]
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   deletedAt   DateTime?
@@ -944,6 +945,8 @@ model Attachment {
   /// Comprovante ou nota fiscal da despesa.
   accountPayableId    String?
   accountPayable      AccountPayable?    @relation(fields: [accountPayableId], references: [id])
+  garmentId           String?
+  garment             Garment?           @relation(fields: [garmentId], references: [id])
   // Separa foto de referência de foto do tecido recebido, etc.
   kind                AttachmentKind     @default(DOCUMENT)
   caption             String?
@@ -958,6 +961,7 @@ enum AttachmentKind {
   REFERENCE
   FABRIC
   PROGRESS
+  GARMENT
 }
 
 // ── Configurações do negócio ──────────────────────────────────────────────────
