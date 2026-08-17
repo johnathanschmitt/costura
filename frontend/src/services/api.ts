@@ -8,7 +8,7 @@ api.interceptors.request.use(config => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   
   if (config.method === 'get') {
-    config.params = { ...config.params, _t: Date.now() };
+    // config.params = { ...config.params, _t: Date.now() }; // Disabled to prevent backend validation errors
   }
   
   return config;
