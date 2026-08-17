@@ -1,5 +1,5 @@
-import { Grid, Card, CardContent, Typography, Box, Chip, Skeleton, List, ListItem, ListItemText, Divider } from '@mui/material';
-import { People, Assignment, MonetizationOn, Warning, LocalShipping } from '@mui/icons-material';
+import { Grid, Card, CardContent, Typography, Box, Chip, Skeleton, List, ListItem, ListItemText, Divider, IconButton } from '@mui/material';
+import { People, Assignment, MonetizationOn, Warning, LocalShipping, Refresh } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -37,10 +37,11 @@ function StatCard({ title, value, icon, color }: { title: string; value: any; ic
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['dashboard'],
-    queryFn: () => api.get('/reports/dashboard').then(r => r.data),
+    queryFn: () => api.get(`/reports/dashboard?t=${Date.now()}`).then(r => r.data),
     refetchInterval: 60_000,
+    staleTime: 0,
   });
 
   const fmt = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
@@ -53,7 +54,12 @@ export default function DashboardPage() {
 
   return (
     <Box>
-      <Typography variant="h5" mb={3}>Dashboard</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+        <Typography variant="h5">Dashboard</Typography>
+        <IconButton onClick={() => refetch()} disabled={isFetching} color="primary">
+          <Refresh />
+        </IconButton>
+      </Box>
 
       <Grid container spacing={2} mb={3}>
         <Grid item xs={12} sm={6} md={3}>

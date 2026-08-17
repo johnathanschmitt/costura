@@ -236,18 +236,29 @@ export class WorkOrdersService {
 
     const { items, measurements, ...data } = dto;
     const number = await this.nextNumber();
+    const discount = D(dto.discount ?? 0);
+    const total = items ? this.itemsTotal(items) : ZERO;
 
-    return this.prisma.workOrder.create({
-      data: {
-        ...data,
-        number,
-        dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
-        discount: D(dto.discount ?? 0),
-        total: items ? this.itemsTotal(items) : ZERO,
-        measurements: (measurements ?? undefined) as Prisma.InputJsonValue | undefined,
-        ...(items && { items: { create: this.itemsCreate(items) } }),
-      },
-      include: { customer: true, items: true, assignedTo: { select: { id: true, name: true } } },
+    return this.prisma.$transaction(async tx => {
+      const wo = await tx.workOrder.create({
+        data: {
+          ...data,
+          number,
+          dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+          discount: discount,
+          total: total,
+          measurements: (measurements ?? undefined) as Prisma.InputJsonValue | undefined,
+          ...(items && { items: { create: this.itemsCreate(items) } }),
+        },
+        include: { customer: true, items: true, assignedTo: { select: { id: true, name: true } } },
+      });
+
+      const netTotal = total.minus(discount);
+      if (netTotal.gt(0)) {
+        await this.createReceivableFor(tx, wo, netTotal);
+      }
+
+      return wo;
     });
   }
 
@@ -740,12 +751,28 @@ export class WorkOrdersService {
   }
 
   async remove(id: string) {
-    const wo = await this.prisma.workOrder.findFirst({ where: { id, deletedAt: null } });
+    const wo = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      include: { accountsReceivable: { where: { deletedAt: null } } },
+    });
     if (!wo) throw new NotFoundException('Ordem de serviço não encontrada');
+
     if (wo.status === 'DELIVERED') {
       throw new BadRequestException('OS já entregue não pode ser removida');
     }
-    return this.prisma.workOrder.update({ where: { id }, data: { deletedAt: new Date() } });
+
+    const hasPayments = wo.accountsReceivable.some(r => r.paidAmount.gt(0));
+    if (hasPayments) {
+      throw new BadRequestException('Esta OS possui pagamentos registrados e não pode ser removida. Cancele os pagamentos primeiro.');
+    }
+
+    return this.prisma.$transaction(async tx => {
+      await tx.accountReceivable.updateMany({
+        where: { workOrderId: id },
+        data: { deletedAt: new Date() },
+      });
+      return tx.workOrder.update({ where: { id }, data: { deletedAt: new Date() } });
+    });
   }
 
   /** Dados do recibo de entrega. */
