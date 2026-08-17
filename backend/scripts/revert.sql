@@ -1,0 +1,1 @@
+UPDATE work_orders SET status = 'PENDING' WHERE number = 'OS-00005';
