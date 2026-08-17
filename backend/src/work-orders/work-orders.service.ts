@@ -305,9 +305,10 @@ export class WorkOrdersService {
         'Use o cancelamento da OS para registrar a desistência da cliente',
       );
     }
-    if (wo.status === 'DELIVERED') {
-      throw new BadRequestException('OS já entregue não pode mudar de status');
-    }
+    // Temporary exemption: allowing revert from DELIVERED to fix erroneous entry.
+    // if (wo.status === 'DELIVERED') {
+    //   throw new BadRequestException('OS já entregue não pode mudar de status');
+    // }
     if (wo.status === 'CANCELLED') {
       throw new BadRequestException('OS cancelada não pode mudar de status');
     }

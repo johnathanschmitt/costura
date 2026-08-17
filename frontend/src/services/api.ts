@@ -6,6 +6,11 @@ const api = axios.create({ baseURL: '/api/v1' });
 api.interceptors.request.use(config => {
   const token = useAuthStore.getState().token;
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  
+  if (config.method === 'get') {
+    config.params = { ...config.params, _t: Date.now() };
+  }
+  
   return config;
 });
 

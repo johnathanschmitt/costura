@@ -39,9 +39,8 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['dashboard'],
-    queryFn: () => api.get(`/reports/dashboard?t=${Date.now()}`).then(r => r.data),
+    queryFn: () => api.get('/reports/dashboard').then(r => r.data),
     refetchInterval: 60_000,
-    staleTime: 0,
   });
 
   const fmt = (n: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
