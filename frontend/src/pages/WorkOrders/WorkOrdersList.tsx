@@ -95,13 +95,14 @@ export default function WorkOrdersList() {
               <TableCell>Costureira</TableCell>
               <TableCell>Prioridade</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Valor</TableCell>
               <TableCell>Prazo</TableCell>
               <TableCell align="right">Ações</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {isLoading ? Array.from({ length: 5 }).map((_, i) => (
-              <TableRow key={i}>{Array.from({ length: 8 }).map((_, j) => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
+              <TableRow key={i}>{Array.from({ length: 9 }).map((_, j) => <TableCell key={j}><Skeleton /></TableCell>)}</TableRow>
             )) : rows.map((wo: any) => {
               const s = STATUS_MAP[wo.status] ?? { label: wo.status, color: 'default' };
               const p = PRIORITY_MAP[wo.priority] ?? PRIORITY_MAP.NORMAL;
@@ -133,6 +134,7 @@ export default function WorkOrdersList() {
                   </TableCell>
                   <TableCell><Chip label={p.label} size="small" color={p.color} /></TableCell>
                   <TableCell><Chip label={s.label} color={s.color} size="small" /></TableCell>
+                  <TableCell>R$ {Number(wo.total || 0).toFixed(2).replace('.', ',')}</TableCell>
                   <TableCell sx={{ color: overdue ? 'error.main' : undefined, fontWeight: overdue ? 600 : undefined }}>
                     {wo.dueDate ? dayjs(wo.dueDate).format('DD/MM/YYYY') : '—'}
                   </TableCell>
