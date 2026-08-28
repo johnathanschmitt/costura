@@ -294,6 +294,18 @@ export class ListWorkOrdersDto {
   @EmptyToUndefined()
   @IsDateString({}, { message: 'Prazo final inválido' })
   dueEnd?: string;
+
+  @ApiPropertyOptional({ description: 'Campo para ordenação', example: 'number' })
+  @IsOptional()
+  @EmptyToUndefined()
+  @IsString()
+  sort?: string;
+
+  @ApiPropertyOptional({ description: 'Ordem da ordenação', enum: ['asc', 'desc'], example: 'desc' })
+  @IsOptional()
+  @EmptyToUndefined()
+  @IsEnum(['asc', 'desc'])
+  order?: 'asc' | 'desc';
 }
 
 export class BoardQueryDto {

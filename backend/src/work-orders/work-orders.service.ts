@@ -84,7 +84,7 @@ export class WorkOrdersService {
   async findAll(query: ListWorkOrdersDto) {
     const {
       page = 1, limit = 20, search, status, priority, assignedToId, garmentId, customerId,
-      startDate, endDate, dueStart, dueEnd,
+      startDate, endDate, dueStart, dueEnd, sort = 'number', order = 'desc',
     } = query;
 
     const where: Prisma.WorkOrderWhereInput = {
@@ -109,12 +109,19 @@ export class WorkOrdersService {
       }),
     };
 
+    const orderBy: Prisma.WorkOrderOrderByWithRelationInput[] = [
+      { [sort]: order },
+    ];
+    if (sort !== 'number') {
+      orderBy.push({ number: 'desc' });
+    }
+
     const [data, total] = await this.prisma.$transaction([
       this.prisma.workOrder.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: [{ priority: 'desc' }, { dueDate: 'asc' }],
+        orderBy,
         include: {
           customer: { select: { id: true, name: true, phone: true } },
           assignedTo: { select: { id: true, name: true } },
@@ -129,6 +136,7 @@ export class WorkOrdersService {
     return {
       data: data.map(({ accountsReceivable, ...wo }) => ({
         ...wo,
+        total: wo.total,
         financials: this.financials(wo.total, wo.discount, accountsReceivable),
       })),
       total,
