@@ -285,7 +285,7 @@ export class WorkOrdersService {
           ...(items && { total: this.itemsTotal(items), items: { create: this.itemsCreate(items) } }),
         },
         include: { accountsReceivable: { where: { deletedAt: null } } },
-      });
+      }) as any;
 
       const newTotal = updatedWo.total;
       const newDiscount = updatedWo.discount;
