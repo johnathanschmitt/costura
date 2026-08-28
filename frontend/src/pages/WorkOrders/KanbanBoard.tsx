@@ -78,19 +78,20 @@ function Column({
           const priority = PRIORITY_MAP[wo.priority] ?? PRIORITY_MAP.NORMAL;
           return (
             <Card
-              key={wo.id}
-              draggable
-              onDragStart={e => e.dataTransfer.setData('text/plain', wo.id)}
-              onClick={() => onOpen(wo.id)}
-              variant="outlined"
-              sx={{
-                cursor: 'grab',
-                borderLeft: 4,
-                borderLeftColor: priority.bar,
-                bgcolor: wo.overdue ? 'error.50' : 'background.paper',
-                '&:active': { cursor: 'grabbing' },
-                '&:hover': { boxShadow: 2 },
-              }}
+            key={wo.id}
+            draggable
+            onDragStart={e => e.dataTransfer.setData('text/plain', wo.id)}
+            onClick={() => onOpen(wo.id)}
+            variant="outlined"
+            sx={{
+              cursor: 'grab',
+              borderLeft: 4,
+              borderLeftColor: priority.bar,
+              bgcolor: wo.overdue ? 'error.50' : 'background.paper',
+              '&:active': { cursor: 'grabbing' },
+              '&:hover': { boxShadow: 2 },
+              minHeight: '120px', // Adicionando altura mínima
+            }}
             >
               <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 1 }}>
