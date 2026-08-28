@@ -263,26 +263,53 @@ export class WorkOrdersService {
   }
 
   async update(id: string, dto: UpdateWorkOrderDto) {
-    await this.findOne(id);
+    const wo = await this.findOne(id);
     const { items, measurements, ...data } = dto;
 
-    if (items) {
-      if (items.length === 0) {
-        throw new BadRequestException('A ordem de serviço deve conter pelo menos um item.');
+    return this.prisma.$transaction(async tx => {
+      let updatedWo = wo;
+      if (items) {
+        if (items.length === 0) {
+          throw new BadRequestException('A ordem de serviço deve conter pelo menos um item.');
+        }
+        await tx.workOrderItem.deleteMany({ where: { workOrderId: id } });
       }
-      await this.prisma.workOrderItem.deleteMany({ where: { workOrderId: id } });
-    }
 
-    return this.prisma.workOrder.update({
-      where: { id },
-      data: {
-        ...data,
-        ...(dto.dueDate !== undefined && { dueDate: dto.dueDate ? new Date(dto.dueDate) : null }),
-        ...(dto.discount !== undefined && { discount: D(dto.discount) }),
-        ...(measurements !== undefined && { measurements: measurements as Prisma.InputJsonValue }),
-        ...(items && { total: this.itemsTotal(items), items: { create: this.itemsCreate(items) } }),
-      },
-      include: { customer: true, items: true, assignedTo: { select: { id: true, name: true } } },
+      updatedWo = await tx.workOrder.update({
+        where: { id },
+        data: {
+          ...data,
+          ...(dto.dueDate !== undefined && { dueDate: dto.dueDate ? new Date(dto.dueDate) : null }),
+          ...(dto.discount !== undefined && { discount: D(dto.discount) }),
+          ...(measurements !== undefined && { measurements: measurements as Prisma.InputJsonValue }),
+          ...(items && { total: this.itemsTotal(items), items: { create: this.itemsCreate(items) } }),
+        },
+        include: { accountsReceivable: { where: { deletedAt: null } } },
+      });
+
+      const newTotal = updatedWo.total;
+      const newDiscount = updatedWo.discount;
+      const netTotal = newTotal.minus(newDiscount);
+
+      // Atualiza a conta a receber, se existir, para refletir o novo total.
+      const receivable = updatedWo.accountsReceivable.find(r => r.status !== 'CANCELLED');
+      if (receivable) {
+        if (receivable.paidAmount.gt(netTotal)) {
+          throw new BadRequestException('O novo valor da OS é menor do que o montante já pago.');
+        }
+        await tx.accountReceivable.update({
+          where: { id: receivable.id },
+          data: { amount: netTotal },
+        });
+      } else if (netTotal.gt(0)) {
+        // Se não havia conta, cria uma nova.
+        await this.createReceivableFor(tx, updatedWo, netTotal);
+      }
+
+      return tx.workOrder.findUnique({
+        where: { id },
+        include: { customer: true, items: { include: { service: true, product: true } }, assignedTo: { select: { id: true, name: true } } },
+      });
     });
   }
 
