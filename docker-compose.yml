@@ -159,8 +159,16 @@ services:
 
 volumes:
   postgres_prod_data:
+    external: true
+    name: costura_postgres_prod_data
+
   redis_data:
+    external: true
+    name: costura_redis_data
+
   minio_data:
+    external: true
+    name: costura_minio_data
 
 networks:
   atelie_net:

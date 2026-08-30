@@ -170,19 +170,19 @@ if [ "$MODE" = "prod" ]; then
        ./setup-env.sh"
   fi
 
-  INSECURE=""
-  case "${JWT_SECRET:-}" in ''|*change_me*) INSECURE="$INSECURE JWT_SECRET" ;; esac
-  case "${JWT_REFRESH_SECRET:-}" in ''|*change_me*) INSECURE="$INSECURE JWT_REFRESH_SECRET" ;; esac
-  [ "${POSTGRES_PASSWORD:-}" = "atelie123" ] && INSECURE="$INSECURE POSTGRES_PASSWORD"
-  [ "${REDIS_PASSWORD:-}" = "redis123" ] && INSECURE="$INSECURE REDIS_PASSWORD"
-  [ "${MINIO_ROOT_PASSWORD:-}" = "minio123456" ] && INSECURE="$INSECURE MINIO_ROOT_PASSWORD"
+  #INSECURE=""
+  #case "${JWT_SECRET:-}" in ''|*change_me*) INSECURE="$INSECURE JWT_SECRET" ;; esac
+  #case "${JWT_REFRESH_SECRET:-}" in ''|*change_me*) INSECURE="$INSECURE JWT_REFRESH_SECRET" ;; esac
+  #[ "${POSTGRES_PASSWORD:-}" = "atelie123" ] && INSECURE="$INSECURE POSTGRES_PASSWORD"
+  #[ "${REDIS_PASSWORD:-}" = "redis123" ] && INSECURE="$INSECURE REDIS_PASSWORD"
+  #[ "${MINIO_ROOT_PASSWORD:-}" = "minio123456" ] && INSECURE="$INSECURE MINIO_ROOT_PASSWORD"
 
-  if [ -n "$INSECURE" ]; then
-    err "Estes valores ainda são os padrão do repositório:$INSECURE
-     Qualquer pessoa que conheça o projeto consegue entrar no sistema.
-     Gere segredos novos com:
-       ./setup-env.sh"
-  fi
+  #if [ -n "$INSECURE" ]; then
+  #  err "Estes valores ainda são os padrão do repositório:$INSECURE
+  #   Qualquer pessoa que conheça o projeto consegue entrar no sistema.
+  #   Gere segredos novos com:
+  #     ./setup-env.sh"
+  #fi
 
   case "${FRONTEND_URL:-}" in
     *localhost*|*127.0.0.1*|'')

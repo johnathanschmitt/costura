@@ -1,0 +1,21 @@
+            "redis-server",
+            "redis123"
+        "Name": "/atelie_redis",
+                "costura_redis_data:/data:rw"
+                "Name": "costura_redis_data",
+                "Source": "/var/lib/docker/volumes/costura_redis_data/_data",
+                "REDIS_VERSION=7.4.10"
+                "redis-server",
+                "redis123"
+                    "redis-cli",
+                    "redis123",
+            "Image": "redis:7-alpine",
+                "com.docker.compose.replace": "atelie_redis",
+                "com.docker.compose.service": "redis",
+                        "atelie_redis",
+                        "redis"
+                        "atelie_redis",
+                        "redis",
+                "org.opencontainers.image.source": "https://github.com/redis/docker-library-redis.git#31c68732e7311d95e4c833b8fa50aa561ced577f:alpine",
+                "org.opencontainers.image.url": "https://hub.docker.com/_/redis",
+
